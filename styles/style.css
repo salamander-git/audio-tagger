@@ -1,180 +1,630 @@
-/* Scoped to the injected container to avoid global pollution if possible, 
-   though unique class names help. */
+/**
+ * Tag Palette Styles for Foundry VTT v13
+ * Complete version with Autocomplete system
+ */
 
-/* .tag-container adaptation */
-.audio-tagger-container {
-    /* Removed fixed width/height/bg/shadow to fit in sidebar */
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid var(--color-border-light-2);
+/* ===== DESIGN TOKENS ===== */
+:root {
+  --at-item-py: 0.15em;
+  --at-item-px: 0.4em;
+  --at-item-font-size: 0.85em;
+  --at-btn-size: 1.5em;
+  --at-btn-offset: -0.5em;
+  --at-gap-sm: 0.3em;
+  --at-gap-md: 0.625em;
+  --at-gap-lg: 1.5em;
+  --at-color-delete: rgba(192, 57, 43, 0.9);
+  --at-filtered-opacity: 0.4;
 }
 
+/* ===== SEARCH FILTER STYLES ===== */
+.audio-tagger-filtered {
+  opacity: var(--at-filtered-opacity);
+  pointer-events: none;
+}
+
+/* ===== OPTIONAL: LIMIT PLAYLIST HEADER HEIGHT ===== */
+body.audio-tagger-limit-header-height .playlist-header {
+  max-height: 20px;
+  overflow: hidden;
+}
+
+body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
+  max-height: 20px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  line-height: 20px;
+}
+
+/* ===== MAIN CONTAINER ===== */
+.audio-tagger-container {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== HEADER ===== */
 .audio-tagger-header {
-    /* Using Foundry standard header styles usually means inheriting or using specific classes.
-       User said: "Standard colors must be used". 
-       We will use standard sidebar header styling. */
-    padding: 0.5em;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    user-select: none;
-    /* background/color removed as per request, will inherit from sidebar */
+  padding: 0.25em 0.5em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  font-size: 0.9em;
 }
 
 .audio-tagger-header:hover {
-    /* Standard hover effect usually handled by Foundry, but we can add a subtle one if needed.
-       User said NO background changes except specific elements. 
-       We will rely on Foundry's default hover if applicable, or minimal transparent overlay. */
-    text-shadow: 0 0 8px var(--color-shadow-primary);
+  text-shadow: 0 0 8px var(--color-shadow-primary);
 }
 
 .audio-tagger-toggle-icon {
-    transition: transform 0.3s ease;
+  transition: transform 0.3s ease;
 }
 
 .audio-tagger-toggle-icon.collapsed {
-    transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
+/* ===== COLLAPSIBLE SECTION ===== */
 .audio-tagger-spoiler {
-    overflow: hidden;
-    transition: max-height 0.4s ease, opacity 0.3s ease;
-    max-height: 500px;
-    /* Arbitrary large number for transition */
-    opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.4s ease, opacity 0.3s ease;
+  max-height: 500px;
+  opacity: 1;
 }
 
 .audio-tagger-spoiler.collapsed {
-    max-height: 0;
-    opacity: 0;
-    padding: 0;
-    margin: 0;
+  max-height: 0;
+  opacity: 0;
 }
 
+/* ===== TAG LIST ===== */
 .audio-tagger-list {
-    position: relative;
-    padding: 0.5em;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5em;
-    align-content: flex-start;
+  /* Default (dark theme) - mirrors input element variables */
+  --input-background-color: var(--color-cool-4, rgba(0, 0, 0, 0.15));
+  --input-border-color: transparent;
+
+  position: relative;
+  padding: 0.25em 0.5em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  min-height: 1.5em;
+  contain: layout;
+  background: var(--input-background-color);
+  border-radius: 4px;
+  border: 1px solid var(--input-border-color);
 }
 
-.audio-tagger-counter {
-    padding: 0.5em;
-    text-align: center;
-    font-size: 0.9em;
-    /* background/color removed */
-    border-top: 1px solid var(--color-border-light-2);
+/* Light theme overrides */
+body.theme-light .audio-tagger-list,
+.themed.theme-light .audio-tagger-list {
+  --input-background-color: rgba(0, 0, 0, 0.1);
+  --input-border-color: var(--color-dark-4, rgba(0, 0, 0, 0.3));
 }
 
-/* Allowed custom styles: add-button */
-.audio-tagger-add-button {
-    width: 100%;
-    padding: 0.5em;
-    background: #28a745;
-    color: #fff;
-    font-size: 1em;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    box-shadow: 0 0.125em 0.25em rgba(0, 0, 0, 0.2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5em;
-    transition: background-color 0.2s, transform 0.1s;
-    margin-top: 0.5em;
-}
-
-.audio-tagger-add-button:hover {
-    background: #218838;
-    transform: translateY(-1px);
-    box-shadow: 0 0.25em 0.5em rgba(0, 0, 0, 0.3);
-}
-
-/* Allowed custom styles: tag-item */
+/* ===== TAG ITEM ===== */
 .audio-tagger-item {
-    display: inline-flex;
-    align-items: center;
-    position: relative;
-    border-radius: 0.375em;
-    padding: 0.3em 0.5em;
-    user-select: none;
-    line-height: 1.4;
-    background: #6c757d;
-    /* Default, will be overridden inline */
-    color: #fff;
-    /* Default, will be overridden inline */
-    font-size: 0.9em;
-    cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  border-radius: 0.25em;
+  padding: var(--at-item-py) var(--at-item-px);
+  user-select: none;
+  line-height: 1.2;
+  background: #6c757d;
+  color: #fff;
+  font-size: var(--at-item-font-size);
+  cursor: pointer;
+  transition: transform 0.1s ease;
 }
 
-.audio-tagger-item .drag-handle {
-    margin-right: 0.3em;
-    cursor: grab;
-    opacity: 0.7;
-    font-size: 0.85em;
+.audio-tagger-item:hover {
+  transform: translateY(-1px);
 }
 
-/* Allowed custom styles: tag-btn (edit/delete) */
+/* ===== TAG BUTTONS (Edit/Delete) ===== */
 .audio-tagger-btn {
-    position: absolute;
-    width: 1.5em;
-    height: 1.5em;
-    border-radius: 50%;
-    background: #007bff;
-    /* Allowed */
-    color: #fff;
-    /* Allowed */
-    display: none;
-    /* Hidden by default */
-    place-items: center;
-    font-size: 0.75em;
-    box-shadow: 0 0.125em 0.375em rgba(0, 0, 0, 0.3);
-    cursor: pointer;
-    transition: transform 0.15s;
-    z-index: 10;
-    color: #007bff;
-    /* Allowed */
-    margin-left: 0.5em;
+  position: absolute;
+  width: var(--at-btn-size);
+  height: var(--at-btn-size);
+  border-radius: 50%;
+  color: #fff;
+  display: none;
+  place-items: center;
+  font-size: 0.75em;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  z-index: 10;
+  transition: transform 0.1s ease;
+}
+
+.audio-tagger-btn:hover {
+  transform: scale(1.15);
+}
+
+.audio-tagger-btn.edit-btn {
+  top: var(--at-btn-offset);
+  right: var(--at-btn-offset);
+  background: #007bff;
+}
+
+.audio-tagger-btn.delete-btn {
+  bottom: var(--at-btn-offset);
+  right: var(--at-btn-offset);
+  background: var(--at-color-delete);
+}
+
+.audio-tagger-item:hover .audio-tagger-btn {
+  display: grid;
+}
+
+/* ===== ADD/WIZARD/SORT BUTTONS ===== */
+.audio-tagger-add-wrapper {
+  display: flex;
+  justify-content: center;
+  gap: 0.3em;
+  padding: 0.3em 0.5em;
+}
+
+/* High specificity selector to override Foundry defaults without !important */
+#audio-tagger-palette .audio-tagger-add-wrapper button.audio-tagger-add-button {
+  padding: 0 0.5em;
+  margin: 0;
+  height: 1.8em;
+  min-height: 0;
+  background: #28a745;
+  color: #fff;
+  font-size: 0.9em;
+  border: none;
+  border-radius: 0.2em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  transition: background 0.2s ease;
+}
+
+#audio-tagger-palette .audio-tagger-add-wrapper button.audio-tagger-add-button:hover {
+  background: #218838;
+}
+
+/* Refresh Button */
+#audio-tagger-palette #at-rest-btn {
+  background: #007bff;
+  color: #fff;
+}
+
+#audio-tagger-palette #at-rest-btn:hover {
+  background: #0056b3;
+}
+
+/* Wizard Button */
+#audio-tagger-palette #at-wizard-btn {
+  background: #007bff;
+}
+
+#audio-tagger-palette #at-wizard-btn:hover {
+  background: #0056b3;
+}
+
+#audio-tagger-palette #at-wizard-btn.active {
+  background: #dc3545;
+}
+
+#audio-tagger-palette #at-wizard-btn.active:hover {
+  background: #c82333;
+}
+
+/* Sort Button */
+#audio-tagger-palette .at-sort-button {
+  width: 2em;
+  padding: 0;
+  justify-content: center;
+  background: #6c757d;
+}
+
+#audio-tagger-palette .at-sort-button:hover {
+  background: #5a6268;
+}
+
+#audio-tagger-palette .at-sort-button i {
+  margin: 0;
+}
+
+/* ===== COUNTER ===== */
+.audio-tagger-counter {
+  padding: 0.15em 0.5em;
+  text-align: center;
+  font-size: 0.75em;
+  color: var(--color-text-dark-secondary);
+}
+
+/* ===== DIALOG STYLES ===== */
+.audio-tagger-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.audio-tagger-form-row {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  gap: 0.625em;
+  align-items: center;
+}
+
+.audio-tagger-form-row label {
+  font-weight: 600;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 0.375em;
 }
 
 .audio-tagger-preview {
-    padding: 0.375em 0.75em;
-    border-radius: 0.3em;
-    min-height: 2em;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.9em;
-    border: 1px solid var(--color-border-light-2);
+  padding: 0.375em 0.75em;
+  border-radius: 0.3em;
+  min-height: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9em;
+  border: 1px solid var(--color-border-light-2);
+}
+
+.audio-tagger-preset-cog {
+  cursor: pointer;
+  color: #007bff;
+  transition: transform 0.2s ease;
+}
+
+.audio-tagger-preset-cog:hover {
+  transform: scale(1.2);
 }
 
 .audio-tagger-palette-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 0.375em;
-    flex: 1;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.375em;
+  flex: 1;
 }
 
 .audio-tagger-color-preset {
-    height: 1.875em;
-    border-radius: 0.375em;
-    cursor: pointer;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    max-height: 300px;
-    overflow-y: auto;
+  height: 1.875em;
+  border-radius: 0.375em;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.audio-tagger-color-preset:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.audio-tagger-color-controls {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+}
+
+.audio-tagger-color-controls input[type="color"] {
+  width: 3em;
+  height: 2.5em;
+  padding: 0;
+  border: 1px solid var(--color-border-light-2);
+  border-radius: 0.375em;
+  cursor: pointer;
+}
+
+.audio-tagger-color-controls input[type="text"] {
+  flex: 1;
+  font-family: monospace;
+  text-transform: uppercase;
+}
+
+.audio-tagger-palette-list {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .audio-tagger-palette-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5em;
-    margin-bottom: 0.5em;
-    padding: 0.25em;
-    border: 1px solid var(--color-border-light-2);
-    border-radius: 4px;
+  display: grid;
+  grid-template-columns: 3em 1fr 2.5em;
+  gap: 0.5em;
+  align-items: center;
+  padding: 0.5em;
+  margin-bottom: 0.5em;
+  background: var(--color-bg-option);
+  border: 1px solid var(--color-border-light-2);
+  border-radius: 0.375em;
+}
+
+.audio-tagger-palette-item input[type="color"] {
+  width: 3em;
+  height: 3em;
+  padding: 0;
+  border: 1px solid var(--color-border-light-2);
+  border-radius: 0.375em;
+  cursor: pointer;
+}
+
+.audio-tagger-palette-item input[type="text"] {
+  font-family: monospace;
+  text-transform: uppercase;
+  padding: 0.5em;
+}
+
+.audio-tagger-palette-item .palette-delete-btn {
+  width: 2.5em;
+  height: 2.5em;
+  background: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 0.375em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.audio-tagger-palette-item .palette-delete-btn:hover {
+  background: #c82333;
+}
+
+.audio-tagger-palette-actions {
+  margin-top: 0.5em;
+}
+
+.audio-tagger-add-color-btn {
+  width: 100%;
+  padding: 0.75em;
+  background: transparent;
+  border: 2px dashed #007bff;
+  color: #007bff;
+  border-radius: 0.375em;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s ease;
+}
+
+.audio-tagger-add-color-btn:hover {
+  background: rgba(0, 123, 255, 0.1);
+}
+
+/* ===== ASSIGNED TAGS CONTAINER ===== */
+
+.audio-tagger-assigned-tags {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 0;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  gap: 0.3em;
+  padding: 0;
+  background: transparent;
+  border-top: none;
+  width: 100%;
+}
+
+.sound .audio-tagger-assigned-tags {
+  background: transparent;
+  padding: 0;
+}
+
+.audio-tagger-assigned-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.2em 0.4em;
+  border-radius: 0.3em;
+  font-size: 0.75em;
+  line-height: 1.2;
+  cursor: default;
+  user-select: none;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.audio-tagger-assigned-tag:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.audio-tagger-assigned-tag .remove-tag {
+  flex-shrink: 0;
+  margin-left: 0.2em;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.1s;
+  font-size: 0.9em;
+}
+
+.audio-tagger-assigned-tag:hover .remove-tag {
+  opacity: 0.6;
+}
+
+.audio-tagger-assigned-tag .remove-tag:hover {
+  opacity: 1 !important;
+  transform: scale(1.2);
+}
+
+/* ===== LAYOUT FIXES ===== */
+
+.playlist {
+  flex-wrap: wrap !important;
+}
+
+.sound {
+  flex-wrap: wrap !important;
+}
+
+.playlist .expandable {
+  width: 100%;
+  flex-basis: 100%;
+}
+
+.directory-item>.audio-tagger-assigned-tags {
+  order: 2;
+}
+
+.directory-item>.expandable {
+  order: 3;
+}
+
+/* ===== TAG WIZARD - HEADER ADD BUTTON ===== */
+
+.at-header-add-btn {
+  cursor: pointer;
+  padding: 0.25em;
+  margin-right: 0.35em;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  font-size: 0.9em;
+}
+
+.at-header-add-btn:hover {
+  opacity: 1;
+  color: var(--color-text-light-highlight);
+  transform: scale(1.15);
+}
+
+/* ===== TAG AUTOCOMPLETE DROPDOWN ===== */
+
+/* Default (dark theme) variables for dropdown - mirrors #context-menu */
+.at-ac-dropdown {
+  --background-color: var(--color-cool-5, #1a1a1a);
+  --border-color: var(--color-cool-3, #444);
+  --text-color: var(--color-text-secondary, #aaa);
+  --hover-text-color: var(--color-text-emphatic, #fff);
+  --hover-entry-background: var(--color-dark-1, #2a2a2a);
+
+  position: fixed;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 9999999;
+  color: var(--text-color);
+  overflow: hidden;
+}
+
+/* Light theme overrides - mirrors .themed.theme-light #context-menu */
+body.theme-light .at-ac-dropdown,
+.themed.theme-light .at-ac-dropdown {
+  --background-color: #d9d8c8;
+  --border-color: #999;
+  --text-color: var(--color-text-secondary, #444);
+  --hover-text-color: var(--color-text-emphatic, #000);
+  --hover-entry-background: #f0f0e0;
+}
+
+/* Search input in dropdown */
+.at-ac-search {
+  width: 100%;
+  padding: 0.6em 0.75em;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.15);
+  color: var(--text-color);
+  font-size: 0.9em;
+  box-sizing: border-box;
+}
+
+.at-ac-search:focus {
+  outline: none;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.at-ac-search::placeholder {
+  color: var(--text-color);
+  opacity: 0.6;
+}
+
+/* Options container */
+.at-ac-options {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.at-ac-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0.75em;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.1s ease;
+  background: transparent;
+  color: var(--text-color);
+}
+
+.at-ac-option:last-child {
+  border-bottom: none;
+}
+
+.at-ac-option:hover {
+  background: var(--hover-entry-background);
+  color: var(--hover-text-color);
+}
+
+.at-ac-option.selected {
+  background: var(--hover-entry-background);
+}
+
+.at-ac-check {
+  flex-shrink: 0;
+  width: 1em;
+  font-size: 1em;
+}
+
+.at-ac-color {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  border-radius: 0.2em;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.at-ac-label {
+  flex: 1;
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.at-ac-no-results {
+  padding: 1em;
+  text-align: center;
+  color: var(--color-text-dark-inactive, #888);
+  font-size: 0.85em;
+}
+
+/* Scrollbar styling for dropdown */
+.at-ac-options::-webkit-scrollbar {
+  width: 8px;
+}
+
+.at-ac-options::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.at-ac-options::-webkit-scrollbar-thumb {
+  background: var(--color-border-light-1, #555);
+  border-radius: 4px;
+}
+
+.at-ac-options::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-light-2, #666);
 }

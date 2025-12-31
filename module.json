@@ -1,14 +1,15 @@
 {
   "id": "audio-tagger",
   "title": "Audio Tagger",
-  "version": "1.0.0",
+  "description": "Customizable tag management system for Foundry VTT playlists",
+  "version": "2.0.0",
   "compatibility": {
-    "minimum": "12",
-    "verified": "13"
+    "minimum": "13",
+    "verified": "13.341"
   },
   "authors": [
     {
-      "name": "Antigravity",
+      "name": "Vladimir",
       "flags": {}
     }
   ],
@@ -22,7 +23,38 @@
   "styles": [
     "styles/style.css"
   ],
-  "languages": [],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "ru",
+      "name": "Русский",
+      "path": "lang/ru.json"
+    }
+  ],
+  "packs": [
+    {
+      "name": "audio-tagger-macro",
+      "label": "Audio Tagger",
+      "path": "packs/audio-tagger-macro",
+      "type": "Macro",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      }
+    }
+  ],
+    "packFolders": [
+    {
+      "name": "Audio Tagger",
+      "sorting": "a",
+      "color": "#0096FF",
+      "packs": ["audio-tagger-macro"]
+    }
+  ],
   "url": "",
   "manifest": "",
   "download": "",
