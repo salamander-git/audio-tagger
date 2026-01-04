@@ -4,23 +4,27 @@ import { TagAssignmentManager } from "./TagAssignmentManager.js";
 import { TagWizard } from "./TagWizard.js";
 
 /**
- * Handles rendering and interaction for the Tag Palette UI
+ * Handles rendering and interaction for the Tag Palette UI.
+ * Uses static methods to avoid unnecessary object creation on each render.
  */
 export class PaletteRenderer {
-    constructor(html) {
-        this.html = html;
-        this.currentSortMode = "name-asc"; // order, name-asc, name-desc, color-hue, color-brightness
-    }
+    // Static state - persists across renders
+    static _currentSortMode = "name-asc";
+    static _elements = null;
 
     /**
-     * Render the palette into the Playlist Directory
+     * Render the palette into the Playlist Directory.
+     * Called from renderPlaylistDirectory hook.
+     * @param {HTMLElement} html - The playlist directory element
      */
-    render() {
+    static render(html) {
+        const element = html instanceof jQuery ? html[0] : html;
+
         // Remove existing palette to prevent duplication
-        const existing = this.html.querySelector("#audio-tagger-palette");
+        const existing = element.querySelector("#audio-tagger-palette");
         if (existing) existing.remove();
 
-        const globalVolume = this.html.querySelector(".global-volume");
+        const globalVolume = element.querySelector(".global-volume");
         if (!globalVolume) {
             console.warn("Audio Tagger | Could not find insertion point in Playlist Directory");
             return;
@@ -30,29 +34,67 @@ export class PaletteRenderer {
         globalVolume.insertAdjacentHTML("afterend", paletteHTML);
 
         // Cache elements
-        this.palette = this.html.querySelector("#audio-tagger-palette");
-        this.list = this.palette.querySelector("#at-list");
-        this.counter = this.palette.querySelector("#at-count");
-        this.spoiler = this.palette.querySelector("#at-spoiler");
-        this.header = this.palette.querySelector("#at-header");
-        this.toggleIcon = this.palette.querySelector("#at-toggle-icon");
-        this.addBtn = this.palette.querySelector("#at-add-btn");
-        this.wizardBtn = this.palette.querySelector("#at-wizard-btn");
-        this.sortBtn = this.palette.querySelector("#at-sort-btn");
-        this.refreshBtn = this.palette.querySelector("#at-rest-btn");
+        this._elements = {
+            html: element,
+            palette: element.querySelector("#audio-tagger-palette"),
+            list: element.querySelector("#at-list"),
+            counter: element.querySelector("#at-count"),
+            spoiler: element.querySelector("#at-spoiler"),
+            header: element.querySelector("#at-header"),
+            toggleIcon: element.querySelector("#at-toggle-icon"),
+            addBtn: element.querySelector("#at-add-btn"),
+            wizardBtn: element.querySelector("#at-wizard-btn"),
+            sortBtn: element.querySelector("#at-sort-btn"),
+            refreshBtn: element.querySelector("#at-rest-btn")
+        };
 
         this._renderTags();
         this._attachListeners();
+        this._initSortable();
 
-        TagWizard.init(this.html);
+        TagWizard.init(element);
     }
 
     /**
-     * Build the palette HTML structure
+     * Initialize SortableJS for drag-and-drop tag reordering.
+     * @private
+     */
+    static _initSortable() {
+        const list = this._elements.list;
+        if (!list || typeof Sortable === "undefined") return;
+
+        // Destroy existing instance if any
+        if (list._sortable) {
+            list._sortable.destroy();
+        }
+
+        list._sortable = Sortable.create(list, {
+            animation: 150,
+            ghostClass: "audio-tagger-ghost",
+            chosenClass: "audio-tagger-chosen",
+            dragClass: "audio-tagger-drag",
+            
+            onStart: () => {
+                list.classList.add("is-dragging");
+            },
+            
+            onEnd: async (evt) => {
+                list.classList.remove("is-dragging");
+                
+                // Get new order from DOM
+                const uuids = Array.from(list.querySelectorAll(".audio-tagger-item"))
+                    .map(el => el.dataset.uuid);
+                await TagManager.reorderTags(uuids);
+            }
+        });
+    }
+
+    /**
+     * Build the palette HTML structure.
      * @returns {string}
      * @private
      */
-    _buildPaletteHTML() {
+    static _buildPaletteHTML() {
         const isCollapsed = TagManager.isCollapsed();
         const tags = TagManager.getSortedTags();
 
@@ -90,15 +132,18 @@ export class PaletteRenderer {
     }
 
     /**
-     * Render tags into the list based on the current sort mode
+     * Render tags into the list based on the current sort mode.
      * @private
      */
-    _renderTags() {
-        const tags = TagManager.getSortedTags(this.currentSortMode);
-        this.list.innerHTML = ""; // Clear existing tags
+    static _renderTags() {
+        const { list, counter } = this._elements;
+        if (!list) return;
+
+        const tags = TagManager.getSortedTags(this._currentSortMode);
+        list.innerHTML = "";
 
         const fragment = document.createDocumentFragment();
-        tags.forEach(tag => {
+        for (const tag of tags) {
             const tagEl = document.createElement("div");
             tagEl.className = "audio-tagger-item";
             tagEl.dataset.uuid = tag.uuid;
@@ -106,7 +151,8 @@ export class PaletteRenderer {
             tagEl.style.backgroundColor = tag.backgroundColor;
             tagEl.style.color = tag.textColor;
             tagEl.innerHTML = `
-                <span>${foundry.utils.escapeHTML(tag.name)}</span>
+                ${tag.icon ? `<span class="at-tag-icon">${tag.icon}</span>` : ""}
+                <span class="at-tag-name">${foundry.utils.escapeHTML(tag.name)}</span>
                 <div class="audio-tagger-btn edit-btn" data-action="editTag" title="${game.i18n.localize("AUDIO_TAGGER.EditTag")}">
                     <i class="fas fa-pencil"></i>
                 </div>
@@ -115,29 +161,33 @@ export class PaletteRenderer {
                 </div>
             `;
             fragment.appendChild(tagEl);
-        });
+        }
 
-        this.list.appendChild(fragment);
-        this.counter.textContent = tags.length;
+        list.appendChild(fragment);
+        if (counter) counter.textContent = tags.length;
     }
 
     /**
-     * Cycle through sort modes and re-render tags
+     * Cycle through sort modes and re-render tags.
      * @private
      */
-    _cycleSortMode() {
-        const modes = ["order", "name-asc", "name-desc", "color-hue", "color-brightness"];
-        const currentIndex = modes.indexOf(this.currentSortMode);
-        this.currentSortMode = modes[(currentIndex + 1) % modes.length];
+    static _cycleSortMode() {
+        const modes = ["order", "name-asc", "name-desc", "color-brightness-dark", "color-brightness"];
+        const currentIndex = modes.indexOf(this._currentSortMode);
+        this._currentSortMode = modes[(currentIndex + 1) % modes.length];
 
         const icons = {
             "order": "fa-grip-vertical",
             "name-asc": "fa-sort-alpha-down",
             "name-desc": "fa-sort-alpha-up",
-            "color-hue": "fa-palette",
-            "color-brightness": "fa-lightbulb"
+            "color-brightness-dark": "fa-moon",
+            "color-brightness": "fa-sun"
         };
-        this.sortBtn.querySelector("i").className = `fas ${icons[this.currentSortMode]}`;
+
+        const { sortBtn } = this._elements;
+        if (sortBtn) {
+            sortBtn.querySelector("i").className = `fas ${icons[this._currentSortMode]}`;
+        }
 
         this._renderTags();
 
@@ -145,39 +195,41 @@ export class PaletteRenderer {
             "order": "AUDIO_TAGGER.SortByOrder",
             "name-asc": "AUDIO_TAGGER.SortByNameAsc",
             "name-desc": "AUDIO_TAGGER.SortByNameDesc",
-            "color-hue": "AUDIO_TAGGER.SortByColorHue",
-            "color-brightness": "AUDIO_TAGGER.SortByBrightness"
+            "color-brightness-dark": "AUDIO_TAGGER.SortByBrightnessDark",
+            "color-brightness": "AUDIO_TAGGER.SortByBrightnessLight"
         };
         if (TagManager.areNotificationsEnabled()) {
-            ui.notifications.info(game.i18n.localize(modeNames[this.currentSortMode]));
+            ui.notifications.info(game.i18n.localize(modeNames[this._currentSortMode]));
         }
     }
 
     /**
-     * Attach event listeners to the palette UI
+     * Attach event listeners to the palette UI.
      * @private
      */
-    _attachListeners() {
-        this.header.addEventListener("click", () => {
-            const isCollapsed = this.spoiler.classList.toggle("collapsed");
-            this.toggleIcon.classList.toggle("collapsed");
+    static _attachListeners() {
+        const { html, header, spoiler, toggleIcon, wizardBtn, addBtn, refreshBtn, sortBtn, list } = this._elements;
+
+        header.addEventListener("click", () => {
+            const isCollapsed = spoiler.classList.toggle("collapsed");
+            toggleIcon.classList.toggle("collapsed");
             TagManager.setCollapsed(isCollapsed);
         });
 
-        this.wizardBtn.addEventListener("click", (e) => {
+        wizardBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             TagWizard.toggle();
         });
 
-        this.addBtn.addEventListener("click", async (e) => {
+        addBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
             const newTag = await TagEditorDialog.open();
             if (newTag) this._renderTags();
         });
 
-        this.refreshBtn.addEventListener("click", async (e) => {
+        refreshBtn.addEventListener("click", async (e) => {
              e.stopPropagation();
-             this.refreshBtn.querySelector("i").classList.add("fa-spin");
+             refreshBtn.querySelector("i").classList.add("fa-spin");
              
              try {
                 // Batch recover
@@ -193,16 +245,16 @@ export class PaletteRenderer {
                     ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagsRefreshed"));
                 }
              } finally {
-                this.refreshBtn.querySelector("i").classList.remove("fa-spin");
+                refreshBtn.querySelector("i").classList.remove("fa-spin");
              }
         });
 
-        this.sortBtn.addEventListener("click", (e) => {
+        sortBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             this._cycleSortMode();
         });
 
-        this.list.addEventListener("click", async (e) => {
+        list.addEventListener("click", async (e) => {
             const item = e.target.closest(".audio-tagger-item");
             if (!item) return;
 
@@ -227,15 +279,18 @@ export class PaletteRenderer {
     }
 
     /**
-     * Set search input to tag name and trigger search.
+     * Add tag name to search input and trigger search.
      * @param {string} tagName - Tag name to search for
      * @private
      */
-    _searchByTag(tagName) {
-        const searchInput = this.html.querySelector("input[name='search']");
+    static _searchByTag(tagName) {
+        const searchInput = this._elements.html.querySelector("input[name='search']");
         if (!searchInput) return;
 
-        searchInput.value = tagName;
+        const currentValue = searchInput.value.trim();
+        const newValue = currentValue ? `${currentValue} ${tagName}` : tagName;
+        
+        searchInput.value = newValue;
         searchInput.dispatchEvent(new Event("input", { bubbles: true }));
         
         // Also trigger Foundry's search filter
@@ -243,16 +298,15 @@ export class PaletteRenderer {
     }
 
     /**
-     * Handle the tag deletion confirmation and process
+     * Handle the tag deletion confirmation and process.
      * @param {object} tag - The tag to delete
      * @private
      */
-    async _handleDelete(tag) {
+    static async _handleDelete(tag) {
          // IMPORTANT: Check notifications setting immediately to determine if we skip dialog
         const notificationsEnabled = TagManager.areNotificationsEnabled();
         
         // If notifications are disabled, delete immediately regardless of usage
-        // The user explicitly requested: "When notifications are off, this dialog should not exist. It is considered that the user always agrees."
         if (!notificationsEnabled) {
             await TagManager.deleteTag(tag.uuid);
             this._renderTags();
@@ -290,7 +344,9 @@ export class PaletteRenderer {
 
         if (confirmed) {
             await TagManager.deleteTag(tag.uuid);
-            ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagDeleted"));
+            if (TagManager.areNotificationsEnabled()) {
+                ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagDeleted"));
+            }
             this._renderTags();
         }
     }

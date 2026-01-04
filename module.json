@@ -2,7 +2,7 @@
   "id": "audio-tagger",
   "title": "Audio Tagger",
   "description": "Customizable tag management system for Foundry VTT playlists",
-  "version": "1.0.0",
+  "version": "1.3.1",
   "compatibility": {
     "minimum": "13",
     "verified": "13.341"
@@ -47,12 +47,14 @@
       }
     }
   ],
-    "packFolders": [
+  "packFolders": [
     {
       "name": "Audio Tagger",
       "sorting": "a",
       "color": "#0096FF",
-      "packs": ["audio-tagger-macro"]
+      "packs": [
+        "audio-tagger-macro"
+      ]
     }
   ],
   "url": "https://github.com/salamander-git/audio-tagger",

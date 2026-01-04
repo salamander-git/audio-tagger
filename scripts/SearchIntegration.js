@@ -3,7 +3,8 @@ import { TagAssignmentManager } from "./TagAssignmentManager.js";
 
 /**
  * SearchIntegration - Hooks into Foundry's native search mechanism.
- * Patches PlaylistDirectory._matchSearchEntries to include tag-based matching.
+ * Patches PlaylistDirectory._matchSearchEntries to include tag-based matching
+ * with multi-word AND logic and partial matching support.
  */
 export class SearchIntegration {
     static _initialized = false;
@@ -43,11 +44,22 @@ export class SearchIntegration {
             const plNameHits = options.plNameHits ??= new Set();
             const clean = foundry.applications.ux.SearchFilter.cleanQuery;
 
-            // Check playlists and sounds for tag matches
+            // Get raw search query from input field
+            const searchInput = document.querySelector('.directory[data-tab="playlists"] input[name="search"]');
+            const rawQuery = searchInput?.value?.trim() || "";
+            
+            if (!rawQuery) return;
+
+            // Split into individual search terms
+            const searchTerms = rawQuery.toLowerCase().split(/\s+/).filter(t => t);
+            
+            if (!searchTerms.length) return;
+
+            // Check playlists and sounds for matches
             for (const pl of this.collection) {
-                // Check playlist tags
-                const plTagMatch = SearchIntegration._documentMatchesTags(pl, query, clean);
-                if (plTagMatch) {
+                // Check if playlist matches ALL search terms
+                const plMatches = SearchIntegration._documentMatchesAllTerms(pl, searchTerms, clean);
+                if (plMatches) {
                     plNameHits.add(pl.id);
                     entryIds.add(pl.id);
                     
@@ -62,10 +74,10 @@ export class SearchIntegration {
                     continue;
                 }
 
-                // Check individual sound tags
+                // Check individual sounds
                 let soundTagHit = false;
                 for (const s of pl.sounds) {
-                    if (SearchIntegration._documentMatchesTags(s, query, clean)) {
+                    if (SearchIntegration._documentMatchesAllTerms(s, searchTerms, clean)) {
                         soundIds.add(s.id);
                         soundTagHit = true;
                     }
@@ -84,31 +96,34 @@ export class SearchIntegration {
     }
 
     /**
-     * Check if a document's assigned tags match the search query.
+     * Check if a document matches ALL search terms.
+     * Each term can match either in the document name or in its tags.
+     * Supports partial matching (e.g., "bear prayer" matches "Bear Mccreary A Giants Prayer").
      * @param {Document} doc - Playlist or PlaylistSound
-     * @param {RegExp} query - The search regex
+     * @param {string[]} searchTerms - Array of search terms (all lowercase)
      * @param {Function} clean - The query cleaning function
      * @returns {boolean}
      * @private
      */
-    static _documentMatchesTags(doc, query, clean) {
+    static _documentMatchesAllTerms(doc, searchTerms, clean) {
+        // Get document name
+        const docName = clean(doc.name || "").toLowerCase();
+        
+        // Get all tag names
         const assignments = TagAssignmentManager.getAssignedTags(doc);
-        if (!assignments?.length) return false;
-
-        for (const assignment of assignments) {
+        const tagNames = (assignments || []).map(assignment => {
             const tag = TagManager.getTag(assignment.uuid);
-            
-            // Check current tag name
-            if (tag?.name && query.test(clean(tag.name))) {
-                return true;
-            }
-            
-            // Check snapshot name (fallback)
-            if (assignment.snapshot?.name && query.test(clean(assignment.snapshot.name))) {
-                return true;
-            }
-        }
+            const name = tag?.name || assignment.snapshot?.name || "";
+            return clean(name).toLowerCase();
+        }).filter(name => name);
 
-        return false;
+        // Check if ALL search terms match (in name OR tags)
+        return searchTerms.every(term => {
+            // Check if term is in document name
+            if (docName.includes(term)) return true;
+            
+            // Check if term matches any tag
+            return tagNames.some(tagName => tagName.includes(term));
+        });
     }
 }

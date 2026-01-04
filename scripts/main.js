@@ -6,8 +6,41 @@ import { TagAssignmentManager } from "./TagAssignmentManager.js";
 import { DirectoryTagRenderer } from "./DirectoryTagRenderer.js";
 import { TagWizard } from "./TagWizard.js";
 import { SearchIntegration } from "./SearchIntegration.js";
+import { SmartPlaylistInjector } from "./SmartPlaylistInjector.js";
 
 import { MODULE_ID } from "./constants.js";
+
+/* -------------------------------------------- */
+/*  SortableJS Loading                          */
+/* -------------------------------------------- */
+
+let sortableLoaded = false;
+
+/**
+ * Load SortableJS from CDN for drag-and-drop functionality.
+ * @returns {Promise<void>}
+ */
+async function loadSortableJS() {
+    if (sortableLoaded || typeof Sortable !== "undefined") {
+        sortableLoaded = true;
+        return;
+    }
+    
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js";
+        script.onload = () => {
+            sortableLoaded = true;
+            console.log("Audio Tagger | SortableJS loaded");
+            resolve();
+        };
+        script.onerror = () => {
+            console.error("Audio Tagger | Failed to load SortableJS");
+            reject(new Error("Failed to load SortableJS"));
+        };
+        document.head.appendChild(script);
+    });
+}
 
 /* -------------------------------------------- */
 /*  Module Initialization                       */
@@ -21,6 +54,12 @@ Hooks.once("init", () => {
 
     // Initialize tag-based search integration
     SearchIntegration.init();
+    
+    // Initialize Smart Playlist feature
+    SmartPlaylistInjector.init();
+    
+    // Load SortableJS for drag-and-drop
+    loadSortableJS();
 });
 
 Hooks.once("ready", async () => {
@@ -79,7 +118,7 @@ Hooks.on("renderPlaylistDirectory", (app, html) => {
     const element = html instanceof jQuery ? html[0] : html;
 
     // Render tag palette
-    new PaletteRenderer(element).render();
+    PaletteRenderer.render(element);
 
     // Render assigned tags on playlists and sounds
     DirectoryTagRenderer.render(element);
