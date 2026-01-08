@@ -28,9 +28,12 @@ export class SmartPlaylistInjector {
      * @private
      */
     static _injectUI(app, html, data) {
+<<<<<<< HEAD
         // Only GMs can use Smart Playlist feature
         if (!game.user.isGM) return;
 
+=======
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
         const element = html instanceof jQuery ? html[0] : html;
         const playlist = app.document;
         

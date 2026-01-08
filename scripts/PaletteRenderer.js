@@ -18,9 +18,12 @@ export class PaletteRenderer {
      * @param {HTMLElement} html - The playlist directory element
      */
     static render(html) {
+<<<<<<< HEAD
         // Only GMs can see the palette
         if (!game.user.isGM) return;
 
+=======
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
         const element = html instanceof jQuery ? html[0] : html;
 
         // Remove existing palette to prevent duplication
@@ -63,9 +66,12 @@ export class PaletteRenderer {
      * @private
      */
     static _initSortable() {
+<<<<<<< HEAD
         // Only GMs can reorder tags
         if (!game.user.isGM) return;
 
+=======
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
         const list = this._elements.list;
         if (!list || typeof Sortable === "undefined") return;
 
@@ -151,7 +157,10 @@ export class PaletteRenderer {
         list.innerHTML = "";
 
         const fragment = document.createDocumentFragment();
+<<<<<<< HEAD
         const isGM = game.user.isGM;
+=======
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
         for (const tag of tags) {
             const tagEl = document.createElement("div");
             tagEl.className = "audio-tagger-item";
@@ -162,7 +171,10 @@ export class PaletteRenderer {
             tagEl.innerHTML = `
                 ${tag.icon ? `<span class="at-tag-icon">${tag.icon}</span>` : ""}
                 <span class="at-tag-name">${foundry.utils.escapeHTML(tag.name)}</span>
+<<<<<<< HEAD
                 ${isGM ? `
+=======
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
                 <div class="audio-tagger-btn edit-btn" data-action="editTag" title="${game.i18n.localize("AUDIO_TAGGER.EditTag")}">
                     <i class="fas fa-pencil"></i>
                 </div>
@@ -227,6 +239,7 @@ export class PaletteRenderer {
             TagManager.setCollapsed(isCollapsed);
         });
 
+<<<<<<< HEAD
         // GM-only buttons
         if (game.user.isGM) {
             wizardBtn?.addEventListener("click", (e) => {
@@ -267,6 +280,45 @@ export class PaletteRenderer {
                 this._cycleSortMode();
             });
         }
+=======
+        wizardBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            TagWizard.toggle();
+        });
+
+        addBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const newTag = await TagEditorDialog.open();
+            if (newTag) this._renderTags();
+        });
+
+        refreshBtn.addEventListener("click", async (e) => {
+             e.stopPropagation();
+             refreshBtn.querySelector("i").classList.add("fa-spin");
+             
+             try {
+                // Batch recover
+                for (const playlist of game.playlists) {
+                    await TagAssignmentManager.recoverTags(playlist);
+                    for (const sound of playlist.sounds) {
+                         await TagAssignmentManager.recoverTags(sound);
+                    }
+                }
+                
+                this._renderTags();
+                if (TagManager.areNotificationsEnabled()) {
+                    ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagsRefreshed"));
+                }
+             } finally {
+                refreshBtn.querySelector("i").classList.remove("fa-spin");
+             }
+        });
+
+        sortBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this._cycleSortMode();
+        });
+>>>>>>> a3d6d59e420c443605a793cd2dd878caff778995
 
         list.addEventListener("click", async (e) => {
             const item = e.target.closest(".audio-tagger-item");
