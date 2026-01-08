@@ -99,8 +99,7 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
 }
 
 /* Light theme overrides */
-body.theme-light .audio-tagger-list,
-.themed.theme-light .audio-tagger-list {
+:where(body.theme-light, .themed.theme-light) .audio-tagger-list {
   --input-background-color: rgba(0, 0, 0, 0.1);
   --input-border-color: var(--color-dark-4, rgba(0, 0, 0, 0.3));
 }
@@ -520,8 +519,7 @@ body.theme-light .audio-tagger-list,
 }
 
 /* Light theme overrides - mirrors .themed.theme-light #context-menu */
-body.theme-light .at-ac-dropdown,
-.themed.theme-light .at-ac-dropdown {
+:where(body.theme-light, .themed.theme-light) .at-ac-dropdown {
   --background-color: #d9d8c8;
   --border-color: #999;
   --text-color: var(--color-text-secondary, #444);
@@ -627,4 +625,291 @@ body.theme-light .at-ac-dropdown,
 
 .at-ac-options::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-light-2, #666);
+}
+
+/* ===== TAG ICON STYLES ===== */
+
+.at-tag-icon {
+  margin-right: 0.25em;
+  font-size: 1em;
+}
+
+.at-tag-name {
+  flex: 1;
+}
+
+/* ===== ICON PICKER STYLES ===== */
+
+.at-icon-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  position: relative;
+}
+
+.at-icon-toggle {
+  width: 2.5em;
+  height: 2.5em;
+  border: 1px solid var(--color-border-light-2);
+  border-radius: 0.375em;
+  background: var(--color-bg-option);
+  cursor: pointer;
+  font-size: 1.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.at-icon-toggle:hover {
+  background: var(--color-bg-option-hover, rgba(255, 255, 255, 0.1));
+}
+
+.at-icon-clear {
+  width: 2em;
+  height: 2em;
+  border: none;
+  border-radius: 0.375em;
+  background: var(--at-color-delete);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.at-icon-clear:hover {
+  background: #c82333;
+}
+
+.at-icon-dropdown {
+  display: none;
+  position: fixed;
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 450px;
+  background: var(--color-cool-5, #1a1a1a);
+  border: 1px solid var(--color-cool-3, #444);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 999999;
+  overflow: hidden;
+}
+
+.at-icon-dropdown.open {
+  display: flex;
+  flex-direction: column;
+}
+
+.at-icon-search {
+  width: 100%;
+  padding: 0.6em 0.75em;
+  border: none;
+  border-bottom: 1px solid var(--color-cool-3, #444);
+  background: rgba(0, 0, 0, 0.15);
+  color: var(--color-text-secondary, #aaa);
+  font-size: 0.9em;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.at-icon-search:focus {
+  outline: none;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.at-icon-search::placeholder {
+  color: var(--color-text-secondary, #aaa);
+  opacity: 0.6;
+}
+
+.at-icon-categories {
+  overflow-y: auto;
+  flex: 1;
+  max-height: 380px;
+}
+
+.at-emoji-category {
+  padding: 0.5em;
+  border-bottom: 1px solid var(--color-cool-3, #444);
+}
+
+.at-emoji-category:last-child {
+  border-bottom: none;
+}
+
+.at-emoji-category-name {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--color-text-dark-secondary, #888);
+  margin-bottom: 0.35em;
+  text-transform: uppercase;
+}
+
+.at-emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25em;
+}
+
+.at-emoji-option {
+  width: 2em;
+  height: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2em;
+  cursor: pointer;
+  border-radius: 0.25em;
+  transition: background 0.1s ease, transform 0.1s ease;
+}
+
+.at-emoji-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.15);
+}
+
+/* Light theme overrides */
+:where(body.theme-light, .themed.theme-light) .at-icon-dropdown {
+  background: #d9d8c8;
+  border-color: #999;
+}
+
+:where(body.theme-light, .themed.theme-light) .at-emoji-option:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* ===== DRAG AND DROP STYLES ===== */
+
+.audio-tagger-item {
+  cursor: grab;
+}
+
+.audio-tagger-item:active {
+  cursor: grabbing;
+}
+
+/* SortableJS ghost (placeholder) */
+.audio-tagger-ghost {
+  opacity: 0.4;
+  background: #ccc !important;
+  border: 2px dashed #888;
+}
+
+/* SortableJS chosen (item being dragged) */
+.audio-tagger-chosen {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* SortableJS drag class */
+.audio-tagger-drag {
+  cursor: grabbing !important;
+}
+
+/* Hide edit/delete buttons during drag */
+.audio-tagger-list.is-dragging .audio-tagger-btn {
+  display: none !important;
+}
+
+/* Disable hover effects during drag */
+.audio-tagger-list.is-dragging .audio-tagger-item:hover {
+  transform: none;
+}
+
+/* ===== SMART PLAYLIST SECTION ===== */
+.at-smart-playlist {
+  margin-top: 0.5em;
+  padding-top: 0.5em;
+  border-top: 1px solid var(--color-border-light-tertiary, #444);
+}
+
+.at-smart-playlist>label {
+  font-weight: bold;
+  margin-bottom: 0.25em;
+}
+
+.at-smart-playlist>.hint {
+  font-size: 0.85em;
+  color: var(--color-text-dark-secondary, #888);
+  margin-bottom: 0.5em;
+}
+
+.at-smart-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  padding: 0.5em;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+  margin-bottom: 0.5em;
+}
+
+.at-smart-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.2em 0.5em;
+  border-radius: 3px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+  user-select: none;
+}
+
+.at-smart-tag:hover {
+  transform: scale(1.05);
+}
+
+.at-smart-tag.selected {
+  box-shadow: 0 0 0 2px rgba(255, 50, 50, 0.8), 0 0 8px rgba(255, 50, 50, 0.6);
+}
+
+.at-smart-tag .at-tag-icon {
+  font-size: 0.9em;
+}
+
+.at-smart-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-bottom: 0.5em;
+}
+
+.at-smart-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.at-smart-option input[type="radio"] {
+  margin: 0;
+}
+
+.at-smart-populate {
+  width: 100%;
+  padding: 0.5em;
+  background: var(--color-primary, #4a90d9);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  transition: background 0.15s ease;
+}
+
+.at-smart-populate:hover {
+  background: var(--color-primary-dark, #3a7bc8);
+}
+
+.at-smart-populate i {
+  font-size: 0.9em;
 }

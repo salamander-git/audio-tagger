@@ -6,9 +6,6 @@ import { MODULE_ID, FLAG_TAGS, FLAG_SEARCH } from "./constants.js";
  * Stores assignments in document flags and maintains search index.
  */
 export class TagAssignmentManager {
-    static MODULE_ID = MODULE_ID;
-    static FLAG_TAGS = FLAG_TAGS;
-    static FLAG_SEARCH = FLAG_SEARCH;
 
     /**
      * Assign a tag to a document.
@@ -46,7 +43,7 @@ export class TagAssignmentManager {
             }
         ];
 
-        await document.setFlag(this.MODULE_ID, this.FLAG_TAGS, newAssignments);
+        await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
         await this.updateSearchFlag(document);
         
         Hooks.callAll("audioTaggerTagAssigned", document, tag);
@@ -69,9 +66,9 @@ export class TagAssignmentManager {
         if (assignments.length === newAssignments.length) return document;
 
         if (newAssignments.length > 0) {
-            await document.setFlag(this.MODULE_ID, this.FLAG_TAGS, newAssignments);
+            await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
         } else {
-            await document.unsetFlag(this.MODULE_ID, this.FLAG_TAGS);
+            await document.unsetFlag(MODULE_ID, FLAG_TAGS);
         }
 
         await this.updateSearchFlag(document);
@@ -90,7 +87,7 @@ export class TagAssignmentManager {
      */
     static getAssignedTags(document) {
         if (!document) return [];
-        return document.getFlag(this.MODULE_ID, this.FLAG_TAGS) || [];
+        return document.getFlag(MODULE_ID, FLAG_TAGS) || [];
     }
 
     /**
@@ -124,9 +121,9 @@ export class TagAssignmentManager {
         const assignments = this.getAssignedTags(document);
 
         if (assignments.length === 0) {
-            const current = document.getFlag(this.MODULE_ID, this.FLAG_SEARCH);
+            const current = document.getFlag(MODULE_ID, FLAG_SEARCH);
             if (current) {
-                await document.unsetFlag(this.MODULE_ID, this.FLAG_SEARCH);
+                await document.unsetFlag(MODULE_ID, FLAG_SEARCH);
             }
             return;
         }
@@ -139,7 +136,7 @@ export class TagAssignmentManager {
             .filter(Boolean)
             .join(" ");
 
-        await document.setFlag(this.MODULE_ID, this.FLAG_SEARCH, searchString);
+        await document.setFlag(MODULE_ID, FLAG_SEARCH, searchString);
     }
 
     /**
@@ -164,7 +161,7 @@ export class TagAssignmentManager {
             
             if (idx !== -1) {
                 assignments[idx].snapshot = snapshot;
-                await doc.setFlag(this.MODULE_ID, this.FLAG_TAGS, assignments);
+                await doc.setFlag(MODULE_ID, FLAG_TAGS, assignments);
                 await this.updateSearchFlag(doc);
             }
         }
@@ -230,41 +227,8 @@ export class TagAssignmentManager {
         }
 
         if (changed) {
-            await document.setFlag(this.MODULE_ID, this.FLAG_TAGS, newAssignments);
+            await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
             await this.updateSearchFlag(document);
-        }
-    }
-
-    /**
-     * Migrate search flags for all existing documents.
-     * Run once on module ready.
-     */
-    static async migrateSearchFlags() {
-        console.log("Audio Tagger | Checking for search flag migrations...");
-        let count = 0;
-
-        for (const playlist of game.playlists) {
-            const hasTags = this.getAssignedTags(playlist).length > 0;
-            const hasSearch = playlist.getFlag(this.MODULE_ID, this.FLAG_SEARCH);
-
-            if (hasTags && !hasSearch) {
-                await this.updateSearchFlag(playlist);
-                count++;
-            }
-
-            for (const sound of playlist.sounds) {
-                const soundHasTags = this.getAssignedTags(sound).length > 0;
-                const soundHasSearch = sound.getFlag(this.MODULE_ID, this.FLAG_SEARCH);
-
-                if (soundHasTags && !soundHasSearch) {
-                    await this.updateSearchFlag(sound);
-                    count++;
-                }
-            }
-        }
-
-        if (count > 0) {
-            console.log(`Audio Tagger | Migrated search flags for ${count} documents.`);
         }
     }
 }

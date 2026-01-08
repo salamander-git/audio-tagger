@@ -3,6 +3,9 @@ import {
     SETTING_TAGS,
     SETTING_PRESETS,
     SETTING_COLLAPSED,
+    SETTING_LIMIT_HEADER,
+    SETTING_NOTIFICATIONS,
+    SETTING_DEFAULT_TAG_ICONS,
     DEFAULT_BG_COLOR,
     DEFAULT_TEXT_COLOR,
     normalizeHexColor
@@ -14,11 +17,6 @@ import {
  */
 export class TagManager {
 
-    static MODULE_ID = MODULE_ID;
-    static SETTING_TAGS = SETTING_TAGS;
-    static SETTING_PRESETS = SETTING_PRESETS;
-    static SETTING_COLLAPSED = SETTING_COLLAPSED;
-
     static _cache = null;
     static _sortCache = new Map(); // mode -> { tags: [], hash: string }
 
@@ -29,37 +27,37 @@ export class TagManager {
     ];
 
     static DEFAULT_TAGS = [
-        { name: "Ambient", backgroundColor: "#E1E7EF", textColor: "#1A1F26" },
-        { name: "Exploration", backgroundColor: "#D9E8C8", textColor: "#2B3D1F" },
-        { name: "Tension", backgroundColor: "#F6D9C5", textColor: "#3A1C14" },
-        { name: "Danger", backgroundColor: "#B83E3E", textColor: "#FFFFFF" },
-        { name: "Mystery", backgroundColor: "#5C5A7A", textColor: "#F4F1FA" },
-        { name: "Dark", backgroundColor: "#1B1B1B", textColor: "#E5E5E5" },
-        { name: "Battle", backgroundColor: "#8B1A1A", textColor: "#FFFFFF" },
-        { name: "Chase", backgroundColor: "#F0B429", textColor: "#2C1A00" },
-        { name: "Stealth", backgroundColor: "#2E3A3F", textColor: "#D7E5EA" },
-        { name: "Investigation", backgroundColor: "#C9D3E7", textColor: "#1C2633" },
-        { name: "Ritual", backgroundColor: "#6A2E6A", textColor: "#F9EAFE" },
-        { name: "Epic", backgroundColor: "#F7E7A1", textColor: "#3C3300" },
-        { name: "Forest", backgroundColor: "#3E6B47", textColor: "#E6F5E9" },
-        { name: "Dungeon", backgroundColor: "#2A2A33", textColor: "#CFCFE1" },
-        { name: "City", backgroundColor: "#D6CEC2", textColor: "#2C2622" },
-        { name: "Tavern", backgroundColor: "#A57A52", textColor: "#F3EDE6" },
-        { name: "Wilderness", backgroundColor: "#6E8F4C", textColor: "#F0F7E8" },
-        { name: "Ruins", backgroundColor: "#7A7169", textColor: "#F3F1EE" },
-        { name: "Mountains", backgroundColor: "#8DA3B8", textColor: "#1F2A33" },
-        { name: "Desert", backgroundColor: "#E4C289", textColor: "#3C2D14" },
-        { name: "Ocean", backgroundColor: "#2C587C", textColor: "#D4EAF8" },
-        { name: "Arcane", backgroundColor: "#5F4DA8", textColor: "#EFEAFE" },
-        { name: "Divine", backgroundColor: "#FFF2D9", textColor: "#3C3010" },
-        { name: "Eldritch", backgroundColor: "#1A2632", textColor: "#BFD6E8" },
-        { name: "Dream", backgroundColor: "#B9A9E6", textColor: "#2A1F47" },
-        { name: "Calm", backgroundColor: "#DFF4F2", textColor: "#153C39" },
-        { name: "Hopeful", backgroundColor: "#F5F0C6", textColor: "#3A3A10" },
-        { name: "Sad", backgroundColor: "#93A2B8", textColor: "#1F272F" },
-        { name: "Suspense", backgroundColor: "#EFE3B8", textColor: "#332B0F" },
-        { name: "Heroic", backgroundColor: "#FFD66B", textColor: "#3C2E00" },
-        { name: "Horror", backgroundColor: "#1A0D0D", textColor: "#FBEAEA" }
+        { name: "Ambient", icon: "🎵", backgroundColor: "#E1E7EF", textColor: "#1A1F26" },
+        { name: "Exploration", icon: "🏃", backgroundColor: "#D9E8C8", textColor: "#2B3D1F" },
+        { name: "Tension", icon: "😤", backgroundColor: "#F6D9C5", textColor: "#3A1C14" },
+        { name: "Danger", icon: "⚠️", backgroundColor: "#B83E3E", textColor: "#FFFFFF" },
+        { name: "Mystery", icon: "🤔", backgroundColor: "#5C5A7A", textColor: "#F4F1FA" },
+        { name: "Dark", icon: "🌙", backgroundColor: "#1B1B1B", textColor: "#E5E5E5" },
+        { name: "Battle", icon: "⚔️", backgroundColor: "#8B1A1A", textColor: "#FFFFFF" },
+        { name: "Chase", icon: "💨", backgroundColor: "#F0B429", textColor: "#2C1A00" },
+        { name: "Stealth", icon: "👤", backgroundColor: "#2E3A3F", textColor: "#D7E5EA" },
+        { name: "Investigation", icon: "🔍", backgroundColor: "#C9D3E7", textColor: "#1C2633" },
+        { name: "Ritual", icon: "🔮", backgroundColor: "#6A2E6A", textColor: "#F9EAFE" },
+        { name: "Epic", icon: "🏆", backgroundColor: "#F7E7A1", textColor: "#3C3300" },
+        { name: "Forest", icon: "🌲", backgroundColor: "#3E6B47", textColor: "#E6F5E9" },
+        { name: "Dungeon", icon: "🗿", backgroundColor: "#2A2A33", textColor: "#CFCFE1" },
+        { name: "City", icon: "🏠", backgroundColor: "#D6CEC2", textColor: "#2C2622" },
+        { name: "Tavern", icon: "🍺", backgroundColor: "#A57A52", textColor: "#F3EDE6" },
+        { name: "Wilderness", icon: "🌳", backgroundColor: "#6E8F4C", textColor: "#F0F7E8" },
+        { name: "Ruins", icon: "🏚️", backgroundColor: "#7A7169", textColor: "#F3F1EE" },
+        { name: "Mountains", icon: "⛰️", backgroundColor: "#8DA3B8", textColor: "#1F2A33" },
+        { name: "Desert", icon: "🏜️", backgroundColor: "#E4C289", textColor: "#3C2D14" },
+        { name: "Ocean", icon: "🌊", backgroundColor: "#2C587C", textColor: "#D4EAF8" },
+        { name: "Arcane", icon: "✨", backgroundColor: "#5F4DA8", textColor: "#EFEAFE" },
+        { name: "Divine", icon: "☀️", backgroundColor: "#FFF2D9", textColor: "#3C3010" },
+        { name: "Eldritch", icon: "👁️", backgroundColor: "#1A2632", textColor: "#BFD6E8" },
+        { name: "Dream", icon: "💭", backgroundColor: "#B9A9E6", textColor: "#2A1F47" },
+        { name: "Calm", icon: "😌", backgroundColor: "#DFF4F2", textColor: "#153C39" },
+        { name: "Hopeful", icon: "🌈", backgroundColor: "#F5F0C6", textColor: "#3A3A10" },
+        { name: "Sad", icon: "😢", backgroundColor: "#93A2B8", textColor: "#1F272F" },
+        { name: "Suspense", icon: "😱", backgroundColor: "#EFE3B8", textColor: "#332B0F" },
+        { name: "Heroic", icon: "🦸", backgroundColor: "#FFD66B", textColor: "#3C2E00" },
+        { name: "Horror", icon: "💀", backgroundColor: "#1A0D0D", textColor: "#FBEAEA" }
     ];
 
     /* -------------------------------------------- */
@@ -74,7 +72,7 @@ export class TagManager {
         console.log("Audio Tagger | Registering settings...");
 
         // Hidden storage settings
-        game.settings.register(this.MODULE_ID, this.SETTING_TAGS, {
+        game.settings.register(MODULE_ID, SETTING_TAGS, {
             scope: "world",
             config: false,
             type: Object,
@@ -86,7 +84,7 @@ export class TagManager {
             }
         });
 
-        game.settings.register(this.MODULE_ID, this.SETTING_PRESETS, {
+        game.settings.register(MODULE_ID, SETTING_PRESETS, {
             scope: "world",
             config: false,
             type: Array,
@@ -96,7 +94,7 @@ export class TagManager {
             }
         });
 
-        game.settings.register(this.MODULE_ID, this.SETTING_COLLAPSED, {
+        game.settings.register(MODULE_ID, SETTING_COLLAPSED, {
             scope: "client",
             config: false,
             type: Boolean,
@@ -104,7 +102,7 @@ export class TagManager {
         });
 
         // Limit playlist header height setting
-        game.settings.register(this.MODULE_ID, "limitPlaylistHeaderHeight", {
+        game.settings.register(MODULE_ID, SETTING_LIMIT_HEADER, {
             name: game.i18n.localize("AUDIO_TAGGER.Settings.LimitHeaderHeight"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.LimitHeaderHeightHint"),
             scope: "client",
@@ -117,7 +115,7 @@ export class TagManager {
         });
 
         // Enable/disable notifications setting
-        game.settings.register(this.MODULE_ID, "enableNotifications", {
+        game.settings.register(MODULE_ID, SETTING_NOTIFICATIONS, {
             name: game.i18n.localize("AUDIO_TAGGER.Settings.EnableNotifications"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.EnableNotificationsHint"),
             scope: "client",
@@ -126,8 +124,21 @@ export class TagManager {
             default: true
         });
 
+        // Toggle default tag icons setting
+        game.settings.register(MODULE_ID, SETTING_DEFAULT_TAG_ICONS, {
+            name: game.i18n.localize("AUDIO_TAGGER.Settings.DefaultTagIcons"),
+            hint: game.i18n.localize("AUDIO_TAGGER.Settings.DefaultTagIconsHint"),
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: true,
+            onChange: (showIcons) => {
+                this._updateDefaultTagsIcons(showIcons);
+            }
+        });
+
         // Reset settings - visible in Module Settings
-        game.settings.registerMenu(this.MODULE_ID, "resetTags", {
+        game.settings.registerMenu(MODULE_ID, "resetTags", {
             name: game.i18n.localize("AUDIO_TAGGER.Settings.ResetTags"),
             label: game.i18n.localize("AUDIO_TAGGER.Settings.ResetTagsBtn"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.ResetTagsHint"),
@@ -139,7 +150,7 @@ export class TagManager {
             restricted: true
         });
 
-        game.settings.registerMenu(this.MODULE_ID, "resetPresets", {
+        game.settings.registerMenu(MODULE_ID, "resetPresets", {
             name: game.i18n.localize("AUDIO_TAGGER.Settings.ResetPresets"),
             label: game.i18n.localize("AUDIO_TAGGER.Settings.ResetPresetsBtn"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.ResetPresetsHint"),
@@ -160,7 +171,7 @@ export class TagManager {
      */
     static applyInitialSettings() {
         // Apply playlist header height limit if enabled
-        const limitHeader = game.settings.get(this.MODULE_ID, "limitPlaylistHeaderHeight");
+        const limitHeader = game.settings.get(MODULE_ID, SETTING_LIMIT_HEADER);
         if (limitHeader) {
             document.body.classList.add("audio-tagger-limit-header-height");
         }
@@ -209,8 +220,46 @@ export class TagManager {
         });
 
         if (confirmed) {
-            await game.settings.set(TagManager.MODULE_ID, TagManager.SETTING_PRESETS, TagManager.DEFAULT_PRESETS);
-            ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.Settings.PresetsReset"));
+            await game.settings.set(MODULE_ID, SETTING_PRESETS, TagManager.DEFAULT_PRESETS);
+            if (this.areNotificationsEnabled()) {
+                ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.Settings.PresetsReset"));
+            }
+        }
+    }
+
+    /**
+     * Update icons on default tags based on setting.
+     * Only affects tags that match default tag names.
+     * @param {boolean} showIcons - Whether to show icons
+     * @private
+     */
+    static async _updateDefaultTagsIcons(showIcons) {
+        const tags = foundry.utils.deepClone(this.getTags());
+        const defaultTagNames = new Set(this.DEFAULT_TAGS.map(t => t.name.toLowerCase()));
+        const defaultTagMap = new Map(this.DEFAULT_TAGS.map(t => [t.name.toLowerCase(), t.icon]));
+        
+        let changed = false;
+        
+        for (const [uuid, tag] of Object.entries(tags)) {
+            const nameLower = tag.name.toLowerCase();
+            if (defaultTagNames.has(nameLower)) {
+                const newIcon = showIcons ? (defaultTagMap.get(nameLower) || "") : "";
+                if (tag.icon !== newIcon) {
+                    tag.icon = newIcon;
+                    changed = true;
+                }
+            }
+        }
+        
+        if (changed) {
+            await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+            this._invalidateCache();
+            ui.playlists?.render();
+            
+            if (this.areNotificationsEnabled()) {
+                const msgKey = showIcons ? "AUDIO_TAGGER.IconsEnabled" : "AUDIO_TAGGER.IconsDisabled";
+                ui.notifications.info(game.i18n.localize(msgKey));
+            }
         }
     }
 
@@ -221,11 +270,10 @@ export class TagManager {
     static getTags() {
         if (!this._cache) {
             try {
-                this._cache = game.settings.get(this.MODULE_ID, this.SETTING_TAGS) || {};
-                // Precalculate color properties for performance
+                this._cache = game.settings.get(MODULE_ID, SETTING_TAGS) || {};
+                // Precalculate brightness for sorting performance
                 Object.values(this._cache).forEach(tag => {
-                    if (!tag._lch) {
-                        tag._lch = this._hexToLCH(tag.backgroundColor);
+                    if (!tag._brightness) {
                         tag._brightness = this._getBrightness(tag.backgroundColor);
                     }
                 });
@@ -257,42 +305,6 @@ export class TagManager {
         return this.getTags()[uuid] || null;
     }
 
-    /**
-     * Convert hex color to LCH color space for improved color sorting.
-     * LCH = Luminance, Chroma, Hue - perceptually uniform color space.
-     * @param {string} hex - Hex color string (#RRGGBB)
-     * @returns {{l: number, c: number, h: number}} LCH values
-     * @private
-     */
-    static _hexToLCH(hex) {
-        // 1. Parse hex to RGB (0-1 range)
-        const r = parseInt(hex.substr(1, 2), 16) / 255;
-        const g = parseInt(hex.substr(3, 2), 16) / 255;
-        const b = parseInt(hex.substr(5, 2), 16) / 255;
-
-        // 2. Convert sRGB to Linear RGB
-        const linearize = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-        const rL = linearize(r), gL = linearize(g), bL = linearize(b);
-
-        // 3. Linear RGB to XYZ (D65 illuminant)
-        const x = rL * 0.4124564 + gL * 0.3575761 + bL * 0.1804375;
-        const y = rL * 0.2126729 + gL * 0.7151522 + bL * 0.0721750;
-        const z = rL * 0.0193339 + gL * 0.1191920 + bL * 0.9503041;
-
-        // 4. XYZ to LAB
-        const xn = 0.95047, yn = 1.0, zn = 1.08883;
-        const f = (t) => t > 0.008856 ? Math.cbrt(t) : (7.787 * t) + 16 / 116;
-        const L = 116 * f(y / yn) - 16;
-        const A = 500 * (f(x / xn) - f(y / yn));
-        const B = 200 * (f(y / yn) - f(z / zn));
-
-        // 5. LAB to LCH
-        const C = Math.sqrt(A * A + B * B);
-        let H = Math.atan2(B, A) * (180 / Math.PI);
-        if (H < 0) H += 360;
-
-        return { l: L, c: C, h: H };
-    }
 
     static _getBrightness(hex) {
         const r = parseInt(hex.substr(1, 2), 16);
@@ -319,28 +331,12 @@ export class TagManager {
             case 'name-desc':
                 result = tags.sort((a, b) => b.name.localeCompare(a.name, undefined, { sensitivity: 'base' }));
                 break;
-            case 'color-hue':
-                result = tags.sort((a, b) => {
-                    const aLch = a._lch || this._hexToLCH(a.backgroundColor);
-                    const bLch = b._lch || this._hexToLCH(b.backgroundColor);
-
-                    const aIsGray = aLch.c < 5;
-                    const bIsGray = bLch.c < 5;
-                    if (aIsGray !== bIsGray) return aIsGray ? -1 : 1;
-                    if (aIsGray && bIsGray) return bLch.l - aLch.l;
-
-                    const aHueRounded = Math.round(aLch.h / 20) * 20;
-                    const bHueRounded = Math.round(bLch.h / 20) * 20;
-                    if (aHueRounded !== bHueRounded) return aHueRounded - bHueRounded;
-
-                    const aLumRounded = Math.round(aLch.l / 15) * 15;
-                    const bLumRounded = Math.round(bLch.l / 15) * 15;
-                    if (aLumRounded !== bLumRounded) return bLumRounded - aLumRounded;
-
-                    return aLch.c - bLch.c;
-                });
+            case 'color-brightness-dark':
+                // Dark to Light
+                result = tags.sort((a, b) => (a._brightness || this._getBrightness(a.backgroundColor)) - (b._brightness || this._getBrightness(b.backgroundColor)));
                 break;
             case 'color-brightness':
+                // Light to Dark
                 result = tags.sort((a, b) => (b._brightness || this._getBrightness(b.backgroundColor)) - (a._brightness || this._getBrightness(a.backgroundColor)));
                 break;
             case 'order':
@@ -361,6 +357,7 @@ export class TagManager {
         const newTag = {
             uuid,
             name: tagData.name,
+            icon: tagData.icon || "",
             backgroundColor: tagData.backgroundColor || "#6c757d",
             textColor: tagData.textColor || "#ffffff",
             order: Object.keys(tags).length,
@@ -369,7 +366,7 @@ export class TagManager {
         };
 
         tags[uuid] = newTag;
-        await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, tags);
+        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagCreated", newTag);
         console.log(`Audio Tagger | Created tag: ${newTag.name}`);
         return newTag;
@@ -382,7 +379,7 @@ export class TagManager {
 
         const updatedTag = { ...tag, ...updates, uuid, updatedAt: Date.now() };
         tags[uuid] = updatedTag;
-        await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, tags);
+        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagUpdated", updatedTag);
         console.log(`Audio Tagger | Updated tag: ${updatedTag.name}`);
         return updatedTag;
@@ -395,10 +392,29 @@ export class TagManager {
         const deletedTag = tags[uuid];
         delete tags[uuid];
 
-        await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, tags);
+        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagDeleted", deletedTag);
         console.log(`Audio Tagger | Deleted tag: ${deletedTag.name}`);
         return true;
+    }
+
+    /**
+     * Reorder tags based on new order from drag-and-drop.
+     * @param {string[]} uuids - Array of tag UUIDs in new order
+     * @returns {Promise<void>}
+     */
+    static async reorderTags(uuids) {
+        const tags = foundry.utils.deepClone(this.getTags());
+        
+        uuids.forEach((uuid, index) => {
+            if (tags[uuid]) {
+                tags[uuid].order = index;
+                tags[uuid].updatedAt = Date.now();
+            }
+        });
+        
+        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        console.log("Audio Tagger | Tags reordered");
     }
 
     /* -------------------------------------------- */
@@ -406,14 +422,14 @@ export class TagManager {
     /* -------------------------------------------- */
 
     static getColorPresets() {
-        const presets = game.settings.get(this.MODULE_ID, this.SETTING_PRESETS);
+        const presets = game.settings.get(MODULE_ID, SETTING_PRESETS);
         // Ensure we always return an array (handle migration from Object to Array)
         if (Array.isArray(presets)) return presets;
         return this.DEFAULT_PRESETS;
     }
 
     static async saveColorPresets(presets) {
-        await game.settings.set(this.MODULE_ID, this.SETTING_PRESETS, presets);
+        await game.settings.set(MODULE_ID, SETTING_PRESETS, presets);
         console.log(`Audio Tagger | Saved ${presets.length} color presets`);
     }
 
@@ -423,7 +439,7 @@ export class TagManager {
 
     static isCollapsed() {
         try {
-            return game.settings.get(this.MODULE_ID, this.SETTING_COLLAPSED);
+            return game.settings.get(MODULE_ID, SETTING_COLLAPSED);
         } catch (e) {
             // Setting not yet registered, return default
             return true;
@@ -431,7 +447,7 @@ export class TagManager {
     }
 
     static async setCollapsed(collapsed) {
-        await game.settings.set(this.MODULE_ID, this.SETTING_COLLAPSED, collapsed);
+        await game.settings.set(MODULE_ID, SETTING_COLLAPSED, collapsed);
     }
 
     /* -------------------------------------------- */
@@ -439,7 +455,7 @@ export class TagManager {
     /* -------------------------------------------- */
 
     static async resetToDefaults() {
-        await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, {});
+        await game.settings.set(MODULE_ID, SETTING_TAGS, {});
         console.log("Audio Tagger | Cleared all tags, creating defaults...");
 
         for (const tagData of this.DEFAULT_TAGS) {
@@ -448,7 +464,9 @@ export class TagManager {
 
         const msg = `Audio Tagger: Reset to ${this.DEFAULT_TAGS.length} default tags`;
         console.log(msg);
-        ui.notifications.info(msg);
+        if (this.areNotificationsEnabled()) {
+            ui.notifications.info(msg);
+        }
     }
 
     static async initializeDefaultTags() {
@@ -476,7 +494,7 @@ export class TagManager {
             console.error("Audio Tagger | Error during initialization:", error);
             // Fallback: clear and recreate
             try {
-                await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, {});
+                await game.settings.set(MODULE_ID, SETTING_TAGS, {});
                 this._invalidateCache();
                 for (const tagData of this.DEFAULT_TAGS) {
                     await this.createTag(tagData);
@@ -500,7 +518,7 @@ export class TagManager {
      */
     static areNotificationsEnabled() {
         try {
-            return game.settings.get(this.MODULE_ID, "enableNotifications");
+            return game.settings.get(MODULE_ID, SETTING_NOTIFICATIONS);
         } catch (e) {
             // Setting not yet registered, return default
             return true;
@@ -516,6 +534,7 @@ export class TagManager {
             newTags[uuid] = {
                 uuid,
                 name: tag.name || tag.text || "Unnamed",
+                icon: tag.icon || "",
                 backgroundColor: tag.backgroundColor || tag.bg || "#6c757d",
                 textColor: tag.textColor || tag.color || "#ffffff",
                 order: tag.order ?? index,
@@ -524,7 +543,7 @@ export class TagManager {
             };
         });
 
-        await game.settings.set(this.MODULE_ID, this.SETTING_TAGS, newTags);
+        await game.settings.set(MODULE_ID, SETTING_TAGS, newTags);
         console.log(`Audio Tagger | Migrated ${Object.keys(newTags).length} tags`);
     }
 }

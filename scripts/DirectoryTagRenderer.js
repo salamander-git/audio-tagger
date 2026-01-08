@@ -148,8 +148,20 @@ export class DirectoryTagRenderer {
             span.className = "audio-tagger-assigned-tag";
             span.style.backgroundColor = data.backgroundColor;
             span.style.color = data.textColor;
-            span.textContent = data.name;
             span.title = data.name;
+            
+            // Add icon if present
+            if (data.icon) {
+                const iconSpan = document.createElement("span");
+                iconSpan.className = "at-tag-icon";
+                iconSpan.textContent = data.icon;
+                span.appendChild(iconSpan);
+            }
+            
+            const nameSpan = document.createElement("span");
+            nameSpan.textContent = data.name;
+            span.appendChild(nameSpan);
+            
             container.appendChild(span);
         }
 
@@ -171,9 +183,20 @@ export class DirectoryTagRenderer {
         span.className = "audio-tagger-assigned-tag";
         span.style.backgroundColor = data.backgroundColor;
         span.style.color = data.textColor;
-        span.textContent = data.name;
         span.title = data.name;
         span.dataset.tagUuid = assignment.uuid;
+        
+        // Add icon if present
+        if (data.icon) {
+            const iconSpan = document.createElement("span");
+            iconSpan.className = "at-tag-icon";
+            iconSpan.textContent = data.icon;
+            span.appendChild(iconSpan);
+        }
+        
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = data.name;
+        span.appendChild(nameSpan);
 
         // Remove button (GM only, if document provided)
         if (doc && game.user.isGM) {

@@ -20,15 +20,22 @@ export class TagWizard {
 
     /**
      * Toggles the wizard mode on or off.
+     * Only available for GMs.
      */
     static async toggle() {
+        if (!game.user.isGM) {
+            ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.GMOnly"));
+            return;
+        }
         this.isActive ? await this.deactivate() : this.activate();
     }
 
     /**
      * Activates wizard mode.
+     * Only available for GMs.
      */
     static activate() {
+        if (!game.user.isGM) return;
         if (this.isActive) return;
         this.isActive = true;
         console.log("Audio Tagger | Tag Wizard activated");
