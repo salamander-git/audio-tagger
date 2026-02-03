@@ -1,11 +1,11 @@
-import { TagManager } from "./TagManager.js";
-import { normalizeHexColor, DEFAULT_BG_COLOR, DEFAULT_TEXT_COLOR, EMOJI_CATEGORIES } from "./constants.js";
+import { TagManager } from "../core/TagManager.js";
+import { normalizeHexColor, DEFAULT_BG_COLOR, DEFAULT_TEXT_COLOR, EMOJI_CATEGORIES } from "../core/constants.js";
 
 /**
  * TagEditorDialog - Dialog for creating and editing tags using DialogV2.
  */
 export class TagEditorDialog {
-    
+
     /**
      * Opens the tag editor dialog.
      * @param {object|null} tag - Existing tag to edit, or null for a new tag.
@@ -17,16 +17,17 @@ export class TagEditorDialog {
         const tagData = {
             name: tag?.name || "",
             icon: tag?.icon || "",
+            isFolder: tag?.isFolder || false,
             backgroundColor: tag?.backgroundColor || DEFAULT_BG_COLOR,
             textColor: tag?.textColor || DEFAULT_TEXT_COLOR
         };
-        
+
         const content = await this._buildContent(tagData, presets);
-        
+
         return new Promise((resolve) => {
             let dialogInstance = null;
             let resolved = false;
-            
+
             const dialogConfig = {
                 window: {
                     title: game.i18n.localize(isCreating ? "AUDIO_TAGGER.CreateTag" : "AUDIO_TAGGER.EditTag"),
@@ -63,9 +64,9 @@ export class TagEditorDialog {
                     if (!resolved) resolve(null);
                 }
             };
-            
+
             dialogInstance = new foundry.applications.api.DialogV2(dialogConfig);
-            
+
             // Attach listeners after render
             dialogInstance.addEventListener("render", (event) => {
                 const element = dialogInstance.element;
@@ -74,22 +75,22 @@ export class TagEditorDialog {
                     element.querySelector("#tagName")?.focus();
                 }
             });
-            
+
             dialogInstance.render({ force: true });
         });
     }
-    
+
     /**
      * Builds the dialog's HTML content.
      * @private
      */
     static _buildContent(tagData, presets) {
-        const presetsHTML = presets.map(color => 
+        const presetsHTML = presets.map(color =>
             `<div class="audio-tagger-color-preset" style="background-color: ${color}" data-color="${color}"></div>`
         ).join("");
-        
+
         const iconPickerHTML = this._buildEmojiPickerHTML(tagData.icon);
-        
+
         return `
             <div class="audio-tagger-dialog-content">
                 <div class="audio-tagger-form-row">
@@ -99,6 +100,13 @@ export class TagEditorDialog {
                 <div class="audio-tagger-form-row">
                     <label for="tagIcon">${game.i18n.localize("AUDIO_TAGGER.TagIcon")}</label>
                     ${iconPickerHTML}
+                </div>
+                <div class="audio-tagger-form-row">
+                    <label for="tagIsFolder">${game.i18n.localize("AUDIO_TAGGER.FolderMode")}</label>
+                    <div class="at-folder-toggle">
+                        <input type="checkbox" id="tagIsFolder" name="isFolder" ${tagData.isFolder ? "checked" : ""}>
+                        <span class="hint">${game.i18n.localize("AUDIO_TAGGER.FolderModeHint")}</span>
+                    </div>
                 </div>
                 <div class="audio-tagger-form-row">
                     <label>${game.i18n.localize("AUDIO_TAGGER.Preview")}</label>
@@ -127,7 +135,7 @@ export class TagEditorDialog {
     static _buildEmojiPickerHTML(currentIcon) {
         let categoriesHTML = "";
         for (const [category, emojis] of Object.entries(EMOJI_CATEGORIES)) {
-            const emojisHTML = emojis.map(item => 
+            const emojisHTML = emojis.map(item =>
                 `<span class="at-emoji-option" data-emoji="${item.e}" data-keywords="${item.k}" data-category="${category.toLowerCase()}">${item.e}</span>`
             ).join("");
             categoriesHTML += `
@@ -137,7 +145,7 @@ export class TagEditorDialog {
                 </div>
             `;
         }
-        
+
         return `
             <div class="at-icon-picker">
                 <button type="button" class="at-icon-toggle" id="iconToggle">
@@ -172,7 +180,7 @@ export class TagEditorDialog {
             </div>
         `;
     }
-    
+
     /**
      * Attaches event listeners to the dialog elements.
      * @private
@@ -190,7 +198,7 @@ export class TagEditorDialog {
         const iconDropdown = element.querySelector("#iconDropdown");
         const iconClear = element.querySelector("#iconClear");
         const iconSearch = element.querySelector("#iconSearch");
-        
+
         let activeField = "bg";
 
         const updatePreview = () => {
@@ -209,12 +217,12 @@ export class TagEditorDialog {
         iconSearch?.addEventListener("input", (e) => {
             const query = e.target.value.toLowerCase().trim();
             const categories = iconDropdown.querySelectorAll(".at-emoji-category");
-            
+
             categories.forEach(category => {
                 const categoryName = category.dataset.category || "";
                 const options = category.querySelectorAll(".at-emoji-option");
                 let hasVisibleEmoji = false;
-                
+
                 if (!query) {
                     // Show all when no query
                     category.style.display = "";
@@ -235,7 +243,7 @@ export class TagEditorDialog {
                             opt.style.display = "none";
                         }
                     });
-                    
+
                     // Show category only if it has visible emojis
                     category.style.display = hasVisibleEmoji ? "" : "none";
                 }
@@ -245,19 +253,19 @@ export class TagEditorDialog {
         // Helper to show dropdown - moves to body for proper z-index
         const showDropdown = () => {
             const rect = iconToggle.getBoundingClientRect();
-            
+
             // Move to body for proper layering
             document.body.appendChild(iconDropdown);
             iconDropdown.classList.add("open");
-            
+
             // Position below button, ensure stays in viewport
             const dropHeight = 400;
             const spaceBelow = window.innerHeight - rect.bottom;
             const top = spaceBelow > dropHeight ? rect.bottom + 4 : rect.top - dropHeight - 4;
-            
+
             iconDropdown.style.top = `${Math.max(4, top)}px`;
             iconDropdown.style.left = `${Math.min(rect.left, window.innerWidth - 340)}px`;
-            
+
             setTimeout(() => iconSearch?.focus(), 50);
         };
 
@@ -282,7 +290,7 @@ export class TagEditorDialog {
         iconToggle?.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             if (iconDropdown.classList.contains("open")) {
                 hideDropdown();
             } else {
@@ -312,7 +320,7 @@ export class TagEditorDialog {
             }
         };
         document.addEventListener("click", closeOnClick);
-        
+
         // Cleanup on dialog close
         element.closest(".application")?.addEventListener("close", () => {
             document.removeEventListener("click", closeOnClick);
@@ -345,13 +353,13 @@ export class TagEditorDialog {
         element.querySelector("#colorPalette").addEventListener("click", (e) => {
             const preset = e.target.closest(".audio-tagger-color-preset");
             if (!preset) return;
-            
+
             const color = preset.dataset.color;
             const picker = activeField === "bg" ? bgPicker : textPicker;
             picker.value = color;
             picker.dispatchEvent(new Event("input", { bubbles: true }));
         });
-        
+
         element.querySelector("#presetCog")?.addEventListener("click", async () => {
             const { PaletteEditorDialog } = await import("./PaletteEditorDialog.js");
             const newPresets = await PaletteEditorDialog.open();
@@ -361,7 +369,7 @@ export class TagEditorDialog {
             }
         });
     }
-    
+
     /**
      * Handles the save operation.
      * @private
@@ -372,19 +380,20 @@ export class TagEditorDialog {
             ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.ErrorEmptyName"));
             return null;
         }
-        
+
         const tagData = {
             name,
             icon: element.querySelector("#tagIcon")?.value || "",
+            isFolder: element.querySelector("#tagIsFolder")?.checked || false,
             backgroundColor: normalizeHexColor(element.querySelector("#bgPicker").value, DEFAULT_BG_COLOR),
             textColor: normalizeHexColor(element.querySelector("#textPicker").value, DEFAULT_TEXT_COLOR)
         };
-        
+
         try {
-            const result = existingTag 
+            const result = existingTag
                 ? await TagManager.updateTag(existingTag.uuid, tagData)
                 : await TagManager.createTag(tagData);
-            
+
             if (TagManager.areNotificationsEnabled()) {
                 ui.notifications.info(game.i18n.localize(existingTag ? "AUDIO_TAGGER.TagUpdated" : "AUDIO_TAGGER.TagCreated"));
             }

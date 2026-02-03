@@ -1,14 +1,21 @@
-import { TagManager } from "./TagManager.js";
-import { TagEditorDialog } from "./TagEditorDialog.js";
-import { PaletteEditorDialog } from "./PaletteEditorDialog.js";
-import { PaletteRenderer } from "./PaletteRenderer.js";
-import { TagAssignmentManager } from "./TagAssignmentManager.js";
-import { DirectoryTagRenderer } from "./DirectoryTagRenderer.js";
-import { TagWizard } from "./TagWizard.js";
-import { SearchIntegration } from "./SearchIntegration.js";
-import { SmartPlaylistInjector } from "./SmartPlaylistInjector.js";
+import { TagManager } from "./core/TagManager.js";
+import { TagEditorDialog } from "./ui/TagEditorDialog.js";
+import { PaletteEditorDialog } from "./ui/PaletteEditorDialog.js";
+import { PaletteRenderer } from "./ui/PaletteRenderer.js";
+import { TagAssignmentManager } from "./features/TagAssignmentManager.js";
+import { DirectoryTagRenderer } from "./ui/DirectoryTagRenderer.js";
+import { TagWizard } from "./features/TagWizard.js";
+import { SearchIntegration } from "./features/SearchIntegration.js";
+import { SmartPlaylistInjector } from "./features/SmartPlaylistInjector.js";
 
-import { MODULE_ID } from "./constants.js";
+import {
+    MODULE_ID,
+    KEYBIND_PLAY_FIRST,
+    KEYBIND_PLAY_LAST,
+    KEYBIND_PLAY_RANDOM,
+    log,
+    toElement
+} from "./core/constants.js";
 
 /* -------------------------------------------- */
 /*  SortableJS Loading                          */
@@ -25,13 +32,13 @@ async function loadSortableJS() {
         sortableLoaded = true;
         return;
     }
-    
+
     return new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js";
         script.onload = () => {
             sortableLoaded = true;
-            console.log("Audio Tagger | SortableJS loaded");
+            log("Audio Tagger | SortableJS loaded");
             resolve();
         };
         script.onerror = () => {
@@ -47,29 +54,69 @@ async function loadSortableJS() {
 /* -------------------------------------------- */
 
 Hooks.once("init", () => {
-    console.log("Audio Tagger | Initializing module");
+    log("Audio Tagger | Initializing module");
 
     // Register settings
     TagManager.registerSettings();
 
     // Initialize tag-based search integration
     SearchIntegration.init();
-    
+
     // Initialize Smart Playlist feature
     SmartPlaylistInjector.init();
-    
+
     // Load SortableJS for drag-and-drop
     loadSortableJS();
+
+    // Register keybindings for audio playback
+    registerKeybindings();
 });
 
+/**
+ * Register keybindings for hotkey+click audio playback.
+ */
+function registerKeybindings() {
+    game.keybindings.register(MODULE_ID, KEYBIND_PLAY_FIRST, {
+        name: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayFirst"),
+        hint: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayFirstHint"),
+        editable: [{ key: "KeyO" }],
+        restricted: false,
+        reservedModifiers: [],
+        onDown: () => { PaletteRenderer._activePlaybackMode = "first"; },
+        onUp: () => { PaletteRenderer._activePlaybackMode = null; }
+    });
+
+    game.keybindings.register(MODULE_ID, KEYBIND_PLAY_LAST, {
+        name: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayLast"),
+        hint: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayLastHint"),
+        editable: [{ key: "KeyL" }],
+        restricted: false,
+        reservedModifiers: [],
+        onDown: () => { PaletteRenderer._activePlaybackMode = "last"; },
+        onUp: () => { PaletteRenderer._activePlaybackMode = null; }
+    });
+
+    game.keybindings.register(MODULE_ID, KEYBIND_PLAY_RANDOM, {
+        name: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayRandom"),
+        hint: game.i18n.localize("AUDIO_TAGGER.Keybindings.PlayRandomHint"),
+        editable: [{ key: "KeyK" }],
+        restricted: false,
+        reservedModifiers: [],
+        onDown: () => { PaletteRenderer._activePlaybackMode = "random"; },
+        onUp: () => { PaletteRenderer._activePlaybackMode = null; }
+    });
+
+    log("Audio Tagger | Keybindings registered");
+}
+
 Hooks.once("ready", async () => {
-    console.log("Audio Tagger | Module ready");
+    log("Audio Tagger | Module ready");
 
     TagManager.applyInitialSettings();
 
     if (game.user.isGM) {
         await TagManager.initializeDefaultTags();
-        
+
         // Recover tags from imported playlists
         for (const playlist of game.playlists) {
             await TagAssignmentManager.recoverTags(playlist);
@@ -95,10 +142,10 @@ Hooks.on("audioTaggerTagUpdated", async (tag) => {
 
 Hooks.on("audioTaggerTagDeleted", async (tag) => {
     if (!game.user.isGM) return;
-    
-    console.log(`Audio Tagger | Removing tag '${tag.name}' from all documents...`);
+
+    log(`Audio Tagger | Removing tag '${tag.name}' from all documents...`);
     const documents = TagAssignmentManager.getDocumentsWithTag(tag.uuid);
-    
+
     for (const doc of documents) {
         await TagAssignmentManager.unassignTag(doc, tag.uuid, true);
     }
@@ -115,7 +162,7 @@ Hooks.on("audioTaggerTagDeleted", async (tag) => {
 /* -------------------------------------------- */
 
 Hooks.on("renderPlaylistDirectory", (app, html) => {
-    const element = html instanceof jQuery ? html[0] : html;
+    const element = toElement(html);
 
     // Render tag palette
     PaletteRenderer.render(element);
@@ -174,5 +221,5 @@ function registerAPI() {
         isWizardActive: () => TagWizard.isWizardActive()
     };
 
-    console.log("Audio Tagger | Public API registered");
+    log("Audio Tagger | Public API registered");
 }

@@ -780,6 +780,70 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
   background: rgba(0, 0, 0, 0.1);
 }
 
+/* ===== FOLDER STYLES ===== */
+
+/* Folder tags - full width, column layout */
+.audio-tagger-item.at-folder {
+  flex-basis: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 3em;
+}
+
+/* Content wrapper - row layout for tag name/icon/buttons */
+.at-item-content {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 0.35em;
+  padding: 0.2em 0.5em;
+  border-radius: 4px;
+  background: inherit;
+}
+
+/* Folder header row spans full width */
+.at-folder>.at-item-content {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* Folder icon */
+.at-folder-icon {
+  margin-right: 0.2em;
+  opacity: 0.7;
+}
+
+/* Nested container inside folder */
+.at-folder-children {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  width: 100%;
+  gap: 0.35em;
+  padding: 0.35em;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  margin-bottom: 0.35em;
+  min-height: 4em;
+  contain: layout style;
+}
+
+/* Tags inside folder should maintain their natural height */
+.at-folder-children>.audio-tagger-item {
+  flex-shrink: 0;
+  height: auto;
+}
+
+.at-folder-children:empty::before {
+  content: "Drop tags here...";
+  color: rgba(255, 255, 255, 0.3);
+  font-style: italic;
+  font-size: 0.8em;
+  padding: 0.2em;
+}
+
 /* ===== DRAG AND DROP STYLES ===== */
 
 .audio-tagger-item {
@@ -790,21 +854,31 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
   cursor: grabbing;
 }
 
-/* SortableJS ghost (placeholder) */
-.audio-tagger-ghost {
-  opacity: 0.4;
-  background: #ccc !important;
-  border: 2px dashed #888;
+/* List containers performance optimization */
+.audio-tagger-list {
+  contain: layout style;
 }
 
-/* SortableJS chosen (item being dragged) */
-.audio-tagger-chosen {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+/* New sortable ghost class per specification */
+.sortable-ghost {
+  opacity: 0.5;
+  border: 1px dashed #007bff;
+  background-color: #c8ebfb !important;
+  box-shadow: none !important;
+  color: transparent !important;
 }
 
-/* SortableJS drag class */
-.audio-tagger-drag {
-  cursor: grabbing !important;
+.sortable-ghost * {
+  visibility: hidden !important;
+}
+
+/* New sortable drag class per specification */
+.sortable-drag {
+  cursor: grabbing;
+  opacity: 1;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
+  z-index: 10000;
+  transform: scale(1.02);
 }
 
 /* Hide edit/delete buttons during drag */
@@ -815,6 +889,54 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
 /* Disable hover effects during drag */
 .audio-tagger-list.is-dragging .audio-tagger-item:hover {
   transform: none;
+}
+
+/* During drag: folder headers don't capture events, only children container does */
+.audio-tagger-list.is-dragging .at-folder>.at-item-content {
+  pointer-events: none;
+}
+
+/* During drag: make children container the primary drop target */
+.audio-tagger-list.is-dragging .at-folder-children {
+  pointer-events: auto;
+  /* Visual hint that this is a drop zone */
+  outline: 2px dashed transparent;
+  transition: outline-color 0.15s ease;
+}
+
+/* Highlight folder children when a tag is being dragged */
+.audio-tagger-list.is-dragging .at-folder-children:hover {
+  outline-color: rgba(100, 150, 255, 0.5);
+}
+
+/* Fix: Edit/delete buttons only on direct hover of content wrapper */
+.at-item-content .audio-tagger-btn {
+  display: none;
+}
+
+.at-item-content:hover .audio-tagger-btn {
+  display: grid;
+}
+
+/* Prevent nested folder hover from showing parent buttons */
+.at-folder-children .audio-tagger-item .audio-tagger-btn {
+  display: none;
+}
+
+.at-folder-children .audio-tagger-item .at-item-content:hover .audio-tagger-btn {
+  display: grid;
+}
+
+/* Folder toggle for tag editor dialog */
+.at-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.at-folder-toggle .hint {
+  font-size: 0.85em;
+  color: var(--color-text-dark-secondary, #888);
 }
 
 /* ===== SMART PLAYLIST SECTION ===== */

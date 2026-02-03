@@ -1,11 +1,11 @@
-import { TagManager } from "./TagManager.js";
-import { normalizeHexColor, DEFAULT_BG_COLOR } from "./constants.js";
+import { TagManager } from "../core/TagManager.js";
+import { normalizeHexColor, DEFAULT_BG_COLOR } from "../core/constants.js";
 
 /**
  * PaletteEditorDialog - Dialog for managing color presets using DialogV2.
  */
 export class PaletteEditorDialog {
-    
+
     /**
      * Opens the palette editor dialog.
      * @returns {Promise<string[]|null>} Updated presets array or null if cancelled.
@@ -13,11 +13,11 @@ export class PaletteEditorDialog {
     static async open() {
         const workingPresets = foundry.utils.deepClone(TagManager.getColorPresets());
         const content = this._buildContent(workingPresets);
-        
+
         return new Promise((resolve) => {
             let dialogInstance = null;
             let resolved = false;
-            
+
             const dialogConfig = {
                 window: {
                     title: game.i18n.localize("AUDIO_TAGGER.PaletteEditor"),
@@ -55,9 +55,9 @@ export class PaletteEditorDialog {
                     if (!resolved) resolve(null);
                 }
             };
-            
+
             dialogInstance = new foundry.applications.api.DialogV2(dialogConfig);
-            
+
             // Attach listeners after render
             dialogInstance.addEventListener("render", (event) => {
                 const element = dialogInstance.element;
@@ -65,11 +65,11 @@ export class PaletteEditorDialog {
                     this._attachEventListeners(element, workingPresets);
                 }
             });
-            
+
             dialogInstance.render({ force: true });
         });
     }
-    
+
     /**
      * Builds the dialog's HTML content.
      * @param {string[]} presets - Current color presets.
@@ -91,7 +91,7 @@ export class PaletteEditorDialog {
             </div>
         `;
     }
-    
+
     /**
      * Builds HTML for the list of preset items.
      * @param {string[]} presets - Color presets.
@@ -109,7 +109,7 @@ export class PaletteEditorDialog {
             </div>
         `).join("");
     }
-    
+
     /**
      * Attaches event listeners to the dialog's elements.
      * @param {HTMLElement} element - The dialog's DOM element.
@@ -118,11 +118,11 @@ export class PaletteEditorDialog {
      */
     static _attachEventListeners(element, workingPresets) {
         const list = element.querySelector("#paletteList");
-        
+
         const refreshList = () => {
             list.innerHTML = this._buildPresetItems(workingPresets);
         };
-        
+
         // Event delegation for item-specific events
         list.addEventListener("input", (e) => {
             const item = e.target.closest(".audio-tagger-palette-item");
@@ -141,16 +141,16 @@ export class PaletteEditorDialog {
                 }
             }
         });
-        
+
         list.addEventListener("click", (e) => {
             const deleteBtn = e.target.closest(".palette-delete-btn");
             if (!deleteBtn) return;
-            
+
             if (workingPresets.length <= 1) {
                 ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.MinimumOneColor"));
                 return;
             }
-            
+
             const item = deleteBtn.closest(".audio-tagger-palette-item");
             const index = parseInt(item.dataset.index);
             workingPresets.splice(index, 1);
@@ -162,7 +162,7 @@ export class PaletteEditorDialog {
             refreshList();
         });
     }
-    
+
     /**
      * Collects the current preset values from the form.
      * @param {HTMLElement} element - Dialog DOM element.

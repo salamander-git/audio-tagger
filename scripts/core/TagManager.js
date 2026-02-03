@@ -6,9 +6,12 @@ import {
     SETTING_LIMIT_HEADER,
     SETTING_NOTIFICATIONS,
     SETTING_DEFAULT_TAG_ICONS,
+    SETTING_SORT_MODE,
+    SETTING_TAG_HIERARCHY,
     DEFAULT_BG_COLOR,
     DEFAULT_TEXT_COLOR,
-    normalizeHexColor
+    normalizeHexColor,
+    log
 } from "./constants.js";
 
 /**
@@ -69,7 +72,7 @@ export class TagManager {
     static registerSettings() {
         if (this._settingsRegistered) return;
 
-        console.log("Audio Tagger | Registering settings...");
+        log("Audio Tagger | Registering settings...");
 
         // Hidden storage settings
         game.settings.register(MODULE_ID, SETTING_TAGS, {
@@ -99,6 +102,26 @@ export class TagManager {
             config: false,
             type: Boolean,
             default: true
+        });
+
+        // Sort mode persistence (per client)
+        game.settings.register(MODULE_ID, SETTING_SORT_MODE, {
+            scope: "client",
+            config: false,
+            type: String,
+            default: "order"
+        });
+
+        // Tag hierarchy storage (folder structure)
+        game.settings.register(MODULE_ID, SETTING_TAG_HIERARCHY, {
+            scope: "world",
+            config: false,
+            type: Object,
+            default: {},
+            onChange: () => {
+                this._invalidateCache();
+                ui.playlists?.render();
+            }
         });
 
         // Limit playlist header height setting
@@ -163,7 +186,7 @@ export class TagManager {
         });
 
         this._settingsRegistered = true;
-        console.log("Audio Tagger | Settings registered successfully");
+        log("Audio Tagger | Settings registered successfully");
     }
 
     /**
@@ -237,9 +260,9 @@ export class TagManager {
         const tags = foundry.utils.deepClone(this.getTags());
         const defaultTagNames = new Set(this.DEFAULT_TAGS.map(t => t.name.toLowerCase()));
         const defaultTagMap = new Map(this.DEFAULT_TAGS.map(t => [t.name.toLowerCase(), t.icon]));
-        
+
         let changed = false;
-        
+
         for (const [uuid, tag] of Object.entries(tags)) {
             const nameLower = tag.name.toLowerCase();
             if (defaultTagNames.has(nameLower)) {
@@ -250,12 +273,12 @@ export class TagManager {
                 }
             }
         }
-        
+
         if (changed) {
             await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
             this._invalidateCache();
             ui.playlists?.render();
-            
+
             if (this.areNotificationsEnabled()) {
                 const msgKey = showIcons ? "AUDIO_TAGGER.IconsEnabled" : "AUDIO_TAGGER.IconsDisabled";
                 ui.notifications.info(game.i18n.localize(msgKey));
@@ -368,7 +391,7 @@ export class TagManager {
         tags[uuid] = newTag;
         await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagCreated", newTag);
-        console.log(`Audio Tagger | Created tag: ${newTag.name}`);
+        log(`Audio Tagger | Created tag: ${newTag.name}`);
         return newTag;
     }
 
@@ -381,7 +404,7 @@ export class TagManager {
         tags[uuid] = updatedTag;
         await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagUpdated", updatedTag);
-        console.log(`Audio Tagger | Updated tag: ${updatedTag.name}`);
+        log(`Audio Tagger | Updated tag: ${updatedTag.name}`);
         return updatedTag;
     }
 
@@ -394,7 +417,7 @@ export class TagManager {
 
         await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
         Hooks.callAll("audioTaggerTagDeleted", deletedTag);
-        console.log(`Audio Tagger | Deleted tag: ${deletedTag.name}`);
+        log(`Audio Tagger | Deleted tag: ${deletedTag.name}`);
         return true;
     }
 
@@ -405,16 +428,16 @@ export class TagManager {
      */
     static async reorderTags(uuids) {
         const tags = foundry.utils.deepClone(this.getTags());
-        
+
         uuids.forEach((uuid, index) => {
             if (tags[uuid]) {
                 tags[uuid].order = index;
                 tags[uuid].updatedAt = Date.now();
             }
         });
-        
+
         await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
-        console.log("Audio Tagger | Tags reordered");
+        log("Audio Tagger | Tags reordered");
     }
 
     /* -------------------------------------------- */
@@ -430,7 +453,7 @@ export class TagManager {
 
     static async saveColorPresets(presets) {
         await game.settings.set(MODULE_ID, SETTING_PRESETS, presets);
-        console.log(`Audio Tagger | Saved ${presets.length} color presets`);
+        log(`Audio Tagger | Saved ${presets.length} color presets`);
     }
 
     /* -------------------------------------------- */
@@ -456,14 +479,18 @@ export class TagManager {
 
     static async resetToDefaults() {
         await game.settings.set(MODULE_ID, SETTING_TAGS, {});
-        console.log("Audio Tagger | Cleared all tags, creating defaults...");
+        log("Audio Tagger | Cleared all tags, creating defaults...");
+
+        // Check if icons should be shown on default tags
+        const showIcons = game.settings.get(MODULE_ID, SETTING_DEFAULT_TAG_ICONS);
 
         for (const tagData of this.DEFAULT_TAGS) {
-            await this.createTag(tagData);
+            const data = showIcons ? tagData : { ...tagData, icon: "" };
+            await this.createTag(data);
         }
 
         const msg = `Audio Tagger: Reset to ${this.DEFAULT_TAGS.length} default tags`;
-        console.log(msg);
+        log(msg);
         if (this.areNotificationsEnabled()) {
             ui.notifications.info(msg);
         }
@@ -478,18 +505,18 @@ export class TagManager {
         try {
             let tags = this.getTags();
             if (this._needsMigration(tags)) {
-                console.log("Audio Tagger | Migrating tags...");
+                log("Audio Tagger | Migrating tags...");
                 await this._migrate(tags);
                 return;
             }
 
             if (Object.keys(tags).length > 0) return;
 
-            console.log("Audio Tagger | Initializing default tags...");
+            log("Audio Tagger | Initializing default tags...");
             for (const tagData of this.DEFAULT_TAGS) {
                 await this.createTag(tagData);
             }
-            console.log(`Audio Tagger | Created ${this.DEFAULT_TAGS.length} default tags`);
+            log(`Audio Tagger | Created ${this.DEFAULT_TAGS.length} default tags`);
         } catch (error) {
             console.error("Audio Tagger | Error during initialization:", error);
             // Fallback: clear and recreate
@@ -544,6 +571,93 @@ export class TagManager {
         });
 
         await game.settings.set(MODULE_ID, SETTING_TAGS, newTags);
-        console.log(`Audio Tagger | Migrated ${Object.keys(newTags).length} tags`);
+        log(`Audio Tagger | Migrated ${Object.keys(newTags).length} tags`);
+    }
+
+    /* -------------------------------------------- */
+    /*  Sort Mode Operations                        */
+    /* -------------------------------------------- */
+
+    /**
+     * Get the current sort mode.
+     * @returns {string}
+     */
+    static getSortMode() {
+        try {
+            return game.settings.get(MODULE_ID, SETTING_SORT_MODE);
+        } catch (e) {
+            return "order";
+        }
+    }
+
+    /**
+     * Set the sort mode.
+     * @param {string} mode - The sort mode to set
+     */
+    static async setSortMode(mode) {
+        await game.settings.set(MODULE_ID, SETTING_SORT_MODE, mode);
+    }
+
+    /* -------------------------------------------- */
+    /*  Tag Hierarchy Operations                    */
+    /* -------------------------------------------- */
+
+    /**
+     * Get the tag hierarchy (folder structure).
+     * @returns {Object} Map of childUuid -> parentUuid
+     */
+    static getTagHierarchy() {
+        try {
+            return game.settings.get(MODULE_ID, SETTING_TAG_HIERARCHY) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Set the tag hierarchy.
+     * @param {Object} hierarchy - Map of childUuid -> parentUuid
+     */
+    static async setTagHierarchy(hierarchy) {
+        await game.settings.set(MODULE_ID, SETTING_TAG_HIERARCHY, hierarchy);
+        log("Audio Tagger | Tag hierarchy updated");
+    }
+
+    /**
+     * Set a tag's parent folder.
+     * @param {string} childUuid - UUID of the child tag
+     * @param {string|null} parentUuid - UUID of the parent folder tag (null to unparent)
+     */
+    static async setTagParent(childUuid, parentUuid) {
+        const hierarchy = foundry.utils.deepClone(this.getTagHierarchy());
+
+        if (parentUuid) {
+            hierarchy[childUuid] = parentUuid;
+        } else {
+            delete hierarchy[childUuid];
+        }
+
+        await this.setTagHierarchy(hierarchy);
+    }
+
+    /**
+     * Get all children of a folder tag.
+     * @param {string} parentUuid - UUID of the parent folder
+     * @returns {string[]} Array of child tag UUIDs
+     */
+    static getTagChildren(parentUuid) {
+        const hierarchy = this.getTagHierarchy();
+        return Object.entries(hierarchy)
+            .filter(([_, parent]) => parent === parentUuid)
+            .map(([child, _]) => child);
+    }
+
+    /**
+     * Get the parent of a tag.
+     * @param {string} childUuid - UUID of the child tag
+     * @returns {string|null} UUID of the parent or null if top-level
+     */
+    static getTagParent(childUuid) {
+        return this.getTagHierarchy()[childUuid] || null;
     }
 }

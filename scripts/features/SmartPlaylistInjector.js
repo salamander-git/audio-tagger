@@ -1,6 +1,6 @@
-import { TagManager } from "./TagManager.js";
+import { TagManager } from "../core/TagManager.js";
 import { TagAssignmentManager } from "./TagAssignmentManager.js";
-import { MODULE_ID } from "./constants.js";
+import { log, toElement } from "../core/constants.js";
 
 /**
  * SmartPlaylistInjector - Injects Smart Playlist UI into PlaylistConfig dialog.
@@ -17,7 +17,7 @@ export class SmartPlaylistInjector {
         Hooks.on("renderPlaylistConfig", (app, html, data) => {
             this._injectUI(app, html, data);
         });
-        console.log("Audio Tagger | SmartPlaylistInjector initialized");
+        log("Audio Tagger | SmartPlaylistInjector initialized");
     }
 
     /**
@@ -31,9 +31,9 @@ export class SmartPlaylistInjector {
         // Only GMs can use Smart Playlist feature
         if (!game.user.isGM) return;
 
-        const element = html instanceof jQuery ? html[0] : html;
+        const element = toElement(html);
         const playlist = app.document;
-        
+
         // Reset selection when opening new playlist
         if (this._currentPlaylistId !== playlist.id) {
             this._selectedTags.clear();
@@ -117,7 +117,7 @@ export class SmartPlaylistInjector {
             tagEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 const uuid = tagEl.dataset.uuid;
-                
+
                 if (this._selectedTags.has(uuid)) {
                     this._selectedTags.delete(uuid);
                     tagEl.classList.remove("selected");
@@ -132,7 +132,7 @@ export class SmartPlaylistInjector {
         const populateBtn = section.querySelector(".at-smart-populate");
         populateBtn?.addEventListener("click", async (e) => {
             e.preventDefault();
-            
+
             if (this._selectedTags.size === 0) {
                 if (TagManager.areNotificationsEnabled()) {
                     ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.SelectTagsFirst"));
@@ -142,7 +142,7 @@ export class SmartPlaylistInjector {
 
             const mode = section.querySelector('input[name="at-smart-mode"]:checked')?.value || "inclusive";
             const exclusive = mode === "exclusive";
-            
+
             await this._populatePlaylist(playlist, exclusive);
         });
     }
@@ -166,7 +166,7 @@ export class SmartPlaylistInjector {
 
         // Get existing sound paths in playlist
         const existingPaths = new Set(playlist.sounds.map(s => s.path));
-        
+
         // Filter out sounds already in playlist
         const newSounds = matchingSounds.filter(s => !existingPaths.has(s.path));
 
@@ -199,7 +199,7 @@ export class SmartPlaylistInjector {
 
         // Clear selection
         this._selectedTags.clear();
-        
+
         // Re-render the config to update the UI
         ui.playlists?.render();
     }

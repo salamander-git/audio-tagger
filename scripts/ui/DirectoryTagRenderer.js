@@ -1,5 +1,7 @@
-import { TagAssignmentManager } from "./TagAssignmentManager.js";
-import { TagManager } from "./TagManager.js";
+import { TagAssignmentManager } from "../features/TagAssignmentManager.js";
+import { TagManager } from "../core/TagManager.js";
+import { TagWizard } from "../features/TagWizard.js";
+import { toElement } from "../core/constants.js";
 
 /**
  * Renders assigned tags for playlists and sounds in PlaylistDirectory.
@@ -12,7 +14,7 @@ export class DirectoryTagRenderer {
      * @param {HTMLElement} html - Directory container
      */
     static render(html) {
-        const element = html instanceof jQuery ? html[0] : html;
+        const element = toElement(html);
 
         // Render tags in playlist directory
         for (const playlistEl of element.querySelectorAll(".playlist")) {
@@ -58,7 +60,7 @@ export class DirectoryTagRenderer {
             const allTags = [...playlistTags, ...soundTags];
 
             // Remove duplicates by UUID
-            const uniqueTags = allTags.filter((tag, idx, arr) => 
+            const uniqueTags = allTags.filter((tag, idx, arr) =>
                 arr.findIndex(t => t.uuid === tag.uuid) === idx
             );
 
@@ -78,6 +80,12 @@ export class DirectoryTagRenderer {
     static _renderTags(element, doc, anchorSelector) {
         const assignments = TagAssignmentManager.getAssignedTags(doc);
         let container = element.querySelector(".audio-tagger-assigned-tags");
+
+        // Skip containers managed by Tag Wizard (have document-uuid attribute)
+        // They will be handled by TagAutocomplete
+        if (container && container.dataset.documentUuid) {
+            return;
+        }
 
         // If no assignments, remove container and exit
         if (assignments.length === 0) {
@@ -149,7 +157,7 @@ export class DirectoryTagRenderer {
             span.style.backgroundColor = data.backgroundColor;
             span.style.color = data.textColor;
             span.title = data.name;
-            
+
             // Add icon if present
             if (data.icon) {
                 const iconSpan = document.createElement("span");
@@ -157,11 +165,11 @@ export class DirectoryTagRenderer {
                 iconSpan.textContent = data.icon;
                 span.appendChild(iconSpan);
             }
-            
+
             const nameSpan = document.createElement("span");
             nameSpan.textContent = data.name;
             span.appendChild(nameSpan);
-            
+
             container.appendChild(span);
         }
 
@@ -185,7 +193,7 @@ export class DirectoryTagRenderer {
         span.style.color = data.textColor;
         span.title = data.name;
         span.dataset.tagUuid = assignment.uuid;
-        
+
         // Add icon if present
         if (data.icon) {
             const iconSpan = document.createElement("span");
@@ -193,7 +201,7 @@ export class DirectoryTagRenderer {
             iconSpan.textContent = data.icon;
             span.appendChild(iconSpan);
         }
-        
+
         const nameSpan = document.createElement("span");
         nameSpan.textContent = data.name;
         span.appendChild(nameSpan);
@@ -203,10 +211,22 @@ export class DirectoryTagRenderer {
             const btn = document.createElement("i");
             btn.className = "fas fa-times remove-tag";
             btn.title = game.i18n.localize("AUDIO_TAGGER.RemoveAssignment");
-            btn.addEventListener("click", (e) => {
+            btn.addEventListener("click", async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                TagAssignmentManager.unassignTag(doc, assignment.uuid);
+                // If Tag Wizard is active, use its method to avoid re-render
+                if (TagWizard.isWizardActive()) {
+                    TagWizard.removeTagFromDocument(doc.uuid, assignment.uuid);
+                } else {
+                    await TagAssignmentManager.unassignTag(doc, assignment.uuid);
+                }
+                // Show notification
+                if (TagManager.areNotificationsEnabled()) {
+                    ui.notifications.info(game.i18n.format("AUDIO_TAGGER.TagRemovedFromDocument", {
+                        tag: data.name,
+                        document: doc.name
+                    }));
+                }
             });
             span.appendChild(btn);
         }

@@ -52,6 +52,7 @@
     "TagDeletedWarning": "The deleted tag was removed from {count} document(s).",
     "TagsRestored": "{count} tag(s) restored from snapshots.",
     "RemoveAssignment": "Remove tag",
+    "TagRemovedFromDocument": "Tag \"{tag}\" removed from \"{document}\".",
     "PaletteEditor": "Palette Editor",
     "ColorPaletteConfig": "Color Palette Configuration",
     "AddColor": "Add Color",
@@ -85,6 +86,18 @@
     "Assign": "Assign Tags",
     "ClearTags": "Clear Tags",
     "GMOnly": "This feature is available to Game Masters only.",
+    "FolderMode": "Folder Mode",
+    "FolderModeHint": "Tags can be nested inside this folder",
+    "NoMatchingSoundsToPlay": "No sounds found matching the tag hierarchy.",
+    "PlayingSound": "Playing: {name}",
+    "Keybindings": {
+      "PlayFirst": "Play First Matching Sound",
+      "PlayFirstHint": "Hold this key + Left-Click on a tag to play the first matching sound",
+      "PlayLast": "Play Last Matching Sound",
+      "PlayLastHint": "Hold this key + Left-Click on a tag to play the last matching sound",
+      "PlayRandom": "Play Random Matching Sound",
+      "PlayRandomHint": "Hold this key + Left-Click on a tag to play a random matching sound"
+    },
     "Settings": {
       "MenuName": "Audio Tagger Settings",
       "MenuLabel": "Configure",

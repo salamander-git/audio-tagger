@@ -1,5 +1,6 @@
-import { TagManager } from "./TagManager.js";
+import { TagManager } from "../core/TagManager.js";
 import { TagAssignmentManager } from "./TagAssignmentManager.js";
+import { log } from "../core/constants.js";
 
 /**
  * SearchIntegration - Hooks into Foundry's native search mechanism.
@@ -15,7 +16,7 @@ export class SearchIntegration {
     static init() {
         if (this._initialized) return;
 
-        console.log("Audio Tagger | Patching PlaylistDirectory search");
+        log("Audio Tagger | Patching PlaylistDirectory search");
 
         // Wait for setup hook when PlaylistDirectory is available
         Hooks.once("setup", () => {
@@ -33,7 +34,7 @@ export class SearchIntegration {
         const PlaylistDirectory = foundry.applications.sidebar.tabs.PlaylistDirectory;
         const original = PlaylistDirectory.prototype._matchSearchEntries;
 
-        PlaylistDirectory.prototype._matchSearchEntries = function(query, entryIds, folderIds, autoExpandIds, options = {}) {
+        PlaylistDirectory.prototype._matchSearchEntries = function (query, entryIds, folderIds, autoExpandIds, options = {}) {
             // Call original method first
             original.call(this, query, entryIds, folderIds, autoExpandIds, options);
 
@@ -47,12 +48,12 @@ export class SearchIntegration {
             // Get raw search query from input field
             const searchInput = document.querySelector('.directory[data-tab="playlists"] input[name="search"]');
             const rawQuery = searchInput?.value?.trim() || "";
-            
+
             if (!rawQuery) return;
 
             // Split into individual search terms
             const searchTerms = rawQuery.toLowerCase().split(/\s+/).filter(t => t);
-            
+
             if (!searchTerms.length) return;
 
             // Check playlists and sounds for matches
@@ -62,10 +63,10 @@ export class SearchIntegration {
                 if (plMatches) {
                     plNameHits.add(pl.id);
                     entryIds.add(pl.id);
-                    
+
                     // Add all sounds from matching playlist
                     pl.sounds.forEach(s => soundIds.add(s.id));
-                    
+
                     // Expand parent folders
                     for (let f = pl.folder; f; f = f.folder) {
                         folderIds.add(f.id);
@@ -108,7 +109,7 @@ export class SearchIntegration {
     static _documentMatchesAllTerms(doc, searchTerms, clean) {
         // Get document name
         const docName = clean(doc.name || "").toLowerCase();
-        
+
         // Get all tag names
         const assignments = TagAssignmentManager.getAssignedTags(doc);
         const tagNames = (assignments || []).map(assignment => {
@@ -121,7 +122,7 @@ export class SearchIntegration {
         return searchTerms.every(term => {
             // Check if term is in document name
             if (docName.includes(term)) return true;
-            
+
             // Check if term matches any tag
             return tagNames.some(tagName => tagName.includes(term));
         });

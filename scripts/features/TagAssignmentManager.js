@@ -1,11 +1,64 @@
-import { TagManager } from "./TagManager.js";
-import { MODULE_ID, FLAG_TAGS, FLAG_SEARCH } from "./constants.js";
+import { TagManager } from "../core/TagManager.js";
+import { MODULE_ID, FLAG_TAGS, FLAG_SEARCH, log } from "../core/constants.js";
 
 /**
  * Manages tag assignments to Playlist and PlaylistSound documents.
  * Stores assignments in document flags and maintains search index.
  */
 export class TagAssignmentManager {
+    // Tag index: tagUuid -> Set<documentUuid>
+    static _tagIndex = new Map();
+    static _indexBuilt = false;
+
+    /**
+     * Rebuild the tag index by scanning all playlists and sounds.
+     * Called lazily on first getDocumentsWithTag call.
+     */
+    static rebuildIndex() {
+        this._tagIndex.clear();
+
+        for (const playlist of game.playlists) {
+            for (const assignment of this.getAssignedTags(playlist)) {
+                this._addToIndex(assignment.uuid, playlist.uuid);
+            }
+            for (const sound of playlist.sounds) {
+                for (const assignment of this.getAssignedTags(sound)) {
+                    this._addToIndex(assignment.uuid, sound.uuid);
+                }
+            }
+        }
+
+        this._indexBuilt = true;
+    }
+
+    /**
+     * Add a document to the tag index.
+     * @param {string} tagUuid 
+     * @param {string} documentUuid 
+     * @private
+     */
+    static _addToIndex(tagUuid, documentUuid) {
+        if (!this._tagIndex.has(tagUuid)) {
+            this._tagIndex.set(tagUuid, new Set());
+        }
+        this._tagIndex.get(tagUuid).add(documentUuid);
+    }
+
+    /**
+     * Remove a document from the tag index.
+     * @param {string} tagUuid 
+     * @param {string} documentUuid 
+     * @private
+     */
+    static _removeFromIndex(tagUuid, documentUuid) {
+        const set = this._tagIndex.get(tagUuid);
+        if (set) {
+            set.delete(documentUuid);
+            if (set.size === 0) {
+                this._tagIndex.delete(tagUuid);
+            }
+        }
+    }
 
     /**
      * Assign a tag to a document.
@@ -45,7 +98,10 @@ export class TagAssignmentManager {
 
         await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
         await this.updateSearchFlag(document);
-        
+
+        // Update index
+        this._addToIndex(tagUuid, document.uuid);
+
         Hooks.callAll("audioTaggerTagAssigned", document, tag);
         return document;
     }
@@ -73,6 +129,9 @@ export class TagAssignmentManager {
 
         await this.updateSearchFlag(document);
 
+        // Update index
+        this._removeFromIndex(tagUuid, document.uuid);
+
         if (!skipRender) {
             Hooks.callAll("audioTaggerTagUnassigned", document, tagUuid);
         }
@@ -92,23 +151,26 @@ export class TagAssignmentManager {
 
     /**
      * Get all documents with a specific tag.
+     * Uses index for O(1) lookup instead of scanning all documents.
      * @param {string} tagUuid
      * @returns {Array<Document>}
      */
     static getDocumentsWithTag(tagUuid) {
-        const results = [];
-        
-        for (const playlist of game.playlists) {
-            if (this.getAssignedTags(playlist).some(a => a.uuid === tagUuid)) {
-                results.push(playlist);
-            }
-            for (const sound of playlist.sounds) {
-                if (this.getAssignedTags(sound).some(a => a.uuid === tagUuid)) {
-                    results.push(sound);
-                }
-            }
+        // Lazy index build
+        if (!this._indexBuilt) {
+            this.rebuildIndex();
         }
 
+        const documentUuids = this._tagIndex.get(tagUuid);
+        if (!documentUuids || documentUuids.size === 0) {
+            return [];
+        }
+
+        const results = [];
+        for (const uuid of documentUuids) {
+            const doc = fromUuidSync(uuid);
+            if (doc) results.push(doc);
+        }
         return results;
     }
 
@@ -154,11 +216,11 @@ export class TagAssignmentManager {
         };
 
         const documents = this.getDocumentsWithTag(tagUuid);
-        
+
         for (const doc of documents) {
             const assignments = this.getAssignedTags(doc);
             const idx = assignments.findIndex(a => a.uuid === tagUuid);
-            
+
             if (idx !== -1) {
                 assignments[idx].snapshot = snapshot;
                 await doc.setFlag(MODULE_ID, FLAG_TAGS, assignments);
@@ -196,7 +258,7 @@ export class TagAssignmentManager {
             );
 
             if (existingTag) {
-                console.log(`Audio Tagger | Merging tag '${snapshot.name}' to existing '${existingTag.name}'`);
+                log(`Audio Tagger | Merging tag '${snapshot.name}' to existing '${existingTag.name}'`);
                 newAssignments.push({
                     uuid: existingTag.uuid,
                     assignedAt: assignment.assignedAt,
@@ -208,7 +270,7 @@ export class TagAssignmentManager {
                 });
                 changed = true;
             } else {
-                console.log(`Audio Tagger | Importing new tag '${snapshot.name}'`);
+                log(`Audio Tagger | Importing new tag '${snapshot.name}'`);
                 try {
                     const newTag = await TagManager.createTag({
                         uuid: assignment.uuid,

@@ -2,7 +2,7 @@
   "id": "audio-tagger",
   "title": "Audio Tagger",
   "description": "Customizable tag management system for Foundry VTT playlists",
-  "version": "1.4.0",
+  "version": "1.5.3",
   "compatibility": {
     "minimum": "13",
     "verified": "13.341"

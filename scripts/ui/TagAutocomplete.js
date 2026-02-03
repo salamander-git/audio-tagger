@@ -1,6 +1,7 @@
-import { TagManager } from "./TagManager.js";
-import { TagAssignmentManager } from "./TagAssignmentManager.js";
-import { DirectoryTagRenderer } from "./DirectoryTagRenderer.js";
+import { TagManager } from "../core/TagManager.js";
+import { TagAssignmentManager } from "../features/TagAssignmentManager.js";
+import { log } from "../core/constants.js";
+
 
 /**
  * TagAutocomplete - A tag selector component for the Tag Wizard.
@@ -216,36 +217,38 @@ export class TagAutocomplete {
      * @private
      */
     _updateVisualTags(tagUuid) {
-        // Find or create the tag container
-        let container = this.document.uuid ?
-            document.querySelector(`.audio-tagger-assigned-tags[data-document-uuid="${this.document.uuid}"]`) : null;
+        // Find the header where button is located
+        const header = this.button.closest("header");
+        if (!header) return;
+
+        // Find or create the tag container near the header
+        let container = header.parentElement.querySelector(".audio-tagger-assigned-tags");
 
         if (!container && this.selectedUuids.has(tagUuid)) {
-            // Container doesn't exist but we adding a tag, so create it
-            // We need to find where to insert it. 
-            // The button is in the header, so we can use that context.
-            const header = this.button.closest("header");
-            if (header) {
-                container = document.createElement("div");
-                container.className = "audio-tagger-assigned-tags";
+            // Container doesn't exist but we're adding a tag, so create it
+            container = document.createElement("div");
+            container.className = "audio-tagger-assigned-tags";
 
-                // Try to determine target type from class
-                const isSound = header.parentElement.classList.contains("sound");
-                container.dataset.target = isSound ? "sound" : "playlist";
-                container.dataset.documentUuid = this.document.uuid;
+            // Mark as managed by Tag Wizard
+            const isSound = header.parentElement.classList.contains("sound");
+            container.dataset.target = isSound ? "sound" : "playlist";
+            container.dataset.documentUuid = this.document.uuid;
 
-                header.insertAdjacentElement("afterend", container);
-            }
+            header.insertAdjacentElement("afterend", container);
         }
 
         if (!container) return;
+
+        // Ensure container is marked as managed by Tag Wizard
+        if (!container.dataset.documentUuid) {
+            container.dataset.documentUuid = this.document.uuid;
+        }
 
         // If tag is selected, ensure it's in the DOM
         if (this.selectedUuids.has(tagUuid)) {
             // Check if already there
             if (!container.querySelector(`[data-tag-uuid="${tagUuid}"]`)) {
-                const assignment = { uuid: tagUuid, snapshot: null };
-                const tagEl = DirectoryTagRenderer._createTagElement(assignment, this.document);
+                const tagEl = this._createPendingTagElement(tagUuid);
                 if (tagEl) {
                     container.appendChild(tagEl);
                 }
@@ -260,6 +263,52 @@ export class TagAutocomplete {
                 container.remove();
             }
         }
+    }
+
+    /**
+     * Creates a tag element for pending (unsaved) tags with a working Remove button.
+     * @param {string} tagUuid - The UUID of the tag.
+     * @returns {HTMLElement|null}
+     * @private
+     */
+    _createPendingTagElement(tagUuid) {
+        const tag = TagManager.getTag(tagUuid);
+        if (!tag) return null;
+
+        const span = document.createElement("span");
+        span.className = "audio-tagger-assigned-tag at-pending-tag";
+        span.style.backgroundColor = tag.backgroundColor;
+        span.style.color = tag.textColor;
+        span.title = tag.name;
+        span.dataset.tagUuid = tagUuid;
+
+        // Add icon if present
+        if (tag.icon) {
+            const iconSpan = document.createElement("span");
+            iconSpan.className = "at-tag-icon";
+            iconSpan.textContent = tag.icon;
+            span.appendChild(iconSpan);
+        }
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = tag.name;
+        span.appendChild(nameSpan);
+
+        // Remove button - calls _toggleTag to update selectedUuids
+        if (game.user.isGM) {
+            const btn = document.createElement("i");
+            btn.className = "fas fa-times remove-tag";
+            btn.title = game.i18n.localize("AUDIO_TAGGER.RemoveAssignment");
+            btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Remove from pending selections
+                this._toggleTag(tagUuid);
+            });
+            span.appendChild(btn);
+        }
+
+        return span;
     }
 
     /**
@@ -280,7 +329,7 @@ export class TagAutocomplete {
         }
 
         if (toAdd.length > 0 || toRemove.length > 0) {
-            console.log(`Audio Tagger | Saved tags for '${this.document.name}'. Added: ${toAdd.length}, Removed: ${toRemove.length}`);
+            log(`Audio Tagger | Saved tags for '${this.document.name}'. Added: ${toAdd.length}, Removed: ${toRemove.length}`);
         }
     }
 

@@ -1,5 +1,6 @@
-import { TagAutocomplete } from "./TagAutocomplete.js";
-import { TagManager } from "./TagManager.js";
+import { TagAutocomplete } from "../ui/TagAutocomplete.js";
+import { TagManager } from "../core/TagManager.js";
+import { log, toElement } from "../core/constants.js";
 
 /**
  * Manages the "Tag Wizard" mode for bulk tag assignments.
@@ -9,13 +10,14 @@ export class TagWizard {
     static isActive = false;
     static autocompletes = new Map(); // documentUuid -> TagAutocomplete instance
     static html = null;
+    static _savedStates = new Map(); // documentUuid -> { selectedUuids, isOpen, searchQuery }
 
     /**
      * Initializes the wizard with the playlist directory element.
      * @param {HTMLElement} html - The playlist directory element.
      */
     static init(html) {
-        this.html = html instanceof jQuery ? html[0] : html;
+        this.html = toElement(html);
     }
 
     /**
@@ -38,7 +40,7 @@ export class TagWizard {
         if (!game.user.isGM) return;
         if (this.isActive) return;
         this.isActive = true;
-        console.log("Audio Tagger | Tag Wizard activated");
+        log("Audio Tagger | Tag Wizard activated");
 
         this.refresh(this.html);
 
@@ -55,19 +57,106 @@ export class TagWizard {
     static refresh(html) {
         if (!this.isActive) return;
 
-        this.html = html instanceof jQuery ? html[0] : html;
+        this.html = toElement(html);
 
-        // Clean up stale autocompletes for elements no longer in DOM
+        // Save state of all autocompletes before cleanup
+        this._saveAllStates();
+
+        // Destroy ALL autocompletes - their DOM elements are gone after Foundry re-render
         for (const [uuid, ac] of this.autocompletes) {
-            const stillExists = this.html.querySelector(`[data-entry-id="${uuid.split('.')[1]}"], [data-sound-id="${uuid.split('.')[3]}"]`);
-            if (!stillExists) {
-                ac.destroy();
-                this.autocompletes.delete(uuid);
-            }
+            ac.destroy();
         }
+        this.autocompletes.clear();
 
         this._updateWizardButton(true);
         this._injectAddButtons();
+
+        // Restore saved states to new autocomplete instances
+        this._restoreAllStates();
+    }
+
+    /**
+     * Saves the state of all autocomplete instances.
+     * @private
+     */
+    static _saveAllStates() {
+        for (const [uuid, ac] of this.autocompletes) {
+            this._savedStates.set(uuid, {
+                selectedUuids: new Set(ac.selectedUuids),
+                isOpen: ac.isOpen,
+                searchQuery: ac.searchQuery || ""
+            });
+        }
+    }
+
+    /**
+     * Restores saved states to autocomplete instances.
+     * @private
+     */
+    static _restoreAllStates() {
+        for (const [uuid, state] of this._savedStates) {
+            const ac = this.autocompletes.get(uuid);
+            if (ac && state) {
+                // Restore selected UUIDs
+                ac.selectedUuids = new Set(state.selectedUuids);
+                ac.searchQuery = state.searchQuery;
+
+                // Rebuild visual tags for restored state
+                this._rebuildVisualTags(ac);
+
+                // Re-render the dropdown options with restored state
+                if (state.isOpen) {
+                    ac._openDropdown();
+                    if (state.searchQuery) {
+                        ac.searchInput.value = state.searchQuery;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Rebuilds visual tags for an autocomplete after state restore.
+     * @param {TagAutocomplete} ac - The autocomplete instance.
+     * @private
+     */
+    static _rebuildVisualTags(ac) {
+        // Create container for visual tags
+        const header = ac.button.closest("header");
+        if (!header) return;
+
+        // Find or create container (any container, not just with data-document-uuid)
+        let container = header.parentElement.querySelector(".audio-tagger-assigned-tags");
+
+        if (!container && ac.selectedUuids.size > 0) {
+            container = document.createElement("div");
+            container.className = "audio-tagger-assigned-tags";
+            container.dataset.documentUuid = ac.document.uuid;
+            const isSound = header.parentElement.classList.contains("sound");
+            container.dataset.target = isSound ? "sound" : "playlist";
+            header.insertAdjacentElement("afterend", container);
+        }
+
+        if (!container) return;
+
+        // Mark as managed by Tag Wizard
+        if (!container.dataset.documentUuid) {
+            container.dataset.documentUuid = ac.document.uuid;
+        }
+
+        // Clear and rebuild
+        container.innerHTML = "";
+        for (const tagUuid of ac.selectedUuids) {
+            const tagEl = ac._createPendingTagElement(tagUuid);
+            if (tagEl) {
+                container.appendChild(tagEl);
+            }
+        }
+
+        // Remove empty container
+        if (container.children.length === 0) {
+            container.remove();
+        }
     }
 
     /**
@@ -75,7 +164,7 @@ export class TagWizard {
      */
     static async deactivate() {
         if (!this.isActive) return;
-        console.log("Audio Tagger | Tag Wizard deactivating and saving changes...");
+        log("Audio Tagger | Tag Wizard deactivating and saving changes...");
 
         if (TagManager.areNotificationsEnabled()) {
             ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardSaving"), { permanent: true });
@@ -88,6 +177,7 @@ export class TagWizard {
         // Clean up all instances
         this.autocompletes.forEach(ac => ac.destroy());
         this.autocompletes.clear();
+        this._savedStates.clear();
 
         this.isActive = false;
         this._updateWizardButton(false);
@@ -162,7 +252,7 @@ export class TagWizard {
         addBtn.className = "fas fa-plus at-header-add-btn";
         addBtn.dataset.documentUuid = doc.uuid;
         addBtn.title = game.i18n.localize("AUDIO_TAGGER.AddTag");
-        // addBtn.setAttribute("inert", "");
+
 
         // Insert as first child of header
         header.insertBefore(addBtn, header.firstChild);
@@ -178,5 +268,23 @@ export class TagWizard {
      */
     static isWizardActive() {
         return this.isActive;
+    }
+
+    /**
+     * Removes a tag from a document via the autocomplete (without triggering re-render).
+     * Used when Remove tag button is clicked while Tag Wizard is active.
+     * @param {string} documentUuid - The UUID of the document.
+     * @param {string} tagUuid - The UUID of the tag to remove.
+     * @returns {boolean} True if the tag was removed, false if not found.
+     */
+    static removeTagFromDocument(documentUuid, tagUuid) {
+        const autocomplete = this.autocompletes.get(documentUuid);
+        if (!autocomplete) return false;
+
+        if (autocomplete.selectedUuids.has(tagUuid)) {
+            autocomplete._toggleTag(tagUuid);
+            return true;
+        }
+        return false;
     }
 }
