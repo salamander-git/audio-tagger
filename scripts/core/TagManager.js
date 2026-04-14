@@ -166,9 +166,10 @@ export class TagManager {
             label: game.i18n.localize("AUDIO_TAGGER.Settings.ResetTagsBtn"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.ResetTagsHint"),
             icon: "fas fa-undo",
-            type: class extends FormApplication {
-                async render() { TagManager._showResetTagsDialog(); }
-                async _updateObject() { }
+            type: class extends foundry.applications.api.ApplicationV2 {
+                static DEFAULT_OPTIONS = { window: { title: "" } };
+                async _renderHTML() { return ""; }
+                async render() { await TagManager._showResetTagsDialog(); }
             },
             restricted: true
         });
@@ -178,9 +179,10 @@ export class TagManager {
             label: game.i18n.localize("AUDIO_TAGGER.Settings.ResetPresetsBtn"),
             hint: game.i18n.localize("AUDIO_TAGGER.Settings.ResetPresetsHint"),
             icon: "fas fa-palette",
-            type: class extends FormApplication {
-                async render() { TagManager._showResetPresetsDialog(); }
-                async _updateObject() { }
+            type: class extends foundry.applications.api.ApplicationV2 {
+                static DEFAULT_OPTIONS = { window: { title: "" } };
+                async _renderHTML() { return ""; }
+                async render() { await TagManager._showResetPresetsDialog(); }
             },
             restricted: true
         });

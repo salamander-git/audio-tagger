@@ -50,12 +50,15 @@ export function log(...args) {
 }
 
 /**
- * Convert jQuery or HTMLElement to plain HTMLElement.
- * @param {jQuery|HTMLElement} html - The element to convert
+ * Normalize hook html argument to a plain HTMLElement.
+ * Foundry VTT v13+ passes HTMLElement directly (jQuery was removed).
+ * @param {HTMLElement} html - The element from a render hook
  * @returns {HTMLElement}
  */
 export function toElement(html) {
-    return html instanceof jQuery ? html[0] : html;
+    // jQuery was removed in Foundry v13; guard kept for safety only
+    if (typeof jQuery !== "undefined" && html instanceof jQuery) return html[0];
+    return html;
 }
 
 /**

@@ -32,7 +32,8 @@ export class SmartPlaylistInjector {
         if (!game.user.isGM) return;
 
         const element = toElement(html);
-        const playlist = app.document;
+        const playlist = app.document ?? app.object;
+        if (!playlist) return;
 
         // Reset selection when opening new playlist
         if (this._currentPlaylistId !== playlist.id) {
@@ -40,8 +41,10 @@ export class SmartPlaylistInjector {
             this._currentPlaylistId = playlist.id;
         }
 
-        // Find insertion point - after form-group.slim (Fade Duration)
-        const slimGroup = element.querySelector(".form-group.slim");
+        // Find insertion point - support legacy (.form-group.slim) and v14 ApplicationV2 layouts
+        const slimGroup = element.querySelector(".form-group.slim")
+            ?? element.querySelector("form > .form-group:last-of-type")
+            ?? element.querySelector(".form-footer");
         if (!slimGroup) return;
 
         // Don't inject if already exists

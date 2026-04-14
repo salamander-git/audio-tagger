@@ -43,7 +43,11 @@ export class SearchIntegration {
 
             const soundIds = options.soundIds ??= new Set();
             const plNameHits = options.plNameHits ??= new Set();
-            const clean = foundry.applications.ux.SearchFilter.cleanQuery;
+
+            // Resolve SearchFilter.cleanQuery across API versions (v13: ux, v14: may move)
+            const clean = foundry.applications.ux?.SearchFilter?.cleanQuery
+                ?? foundry.utils.SearchFilter?.cleanQuery
+                ?? ((s) => s.toLowerCase().trim());
 
             // Get raw search query from input field
             const searchInput = document.querySelector('.directory[data-tab="playlists"] input[name="search"]');
