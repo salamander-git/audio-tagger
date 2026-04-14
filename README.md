@@ -3,7 +3,7 @@
 A customizable tag management system for Foundry VTT playlists.
 
 ![Foundry v13](https://img.shields.io/badge/Foundry-v13-informational)
-![Version](https://img.shields.io/badge/Version-1.5.0-green)
+![Version](https://img.shields.io/badge/Version-1.5.3-green)
 
 ## Overview
 
