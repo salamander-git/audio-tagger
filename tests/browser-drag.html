@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<title>Audio Tagger — browser regression checks</title>
+<link rel="stylesheet" href="../styles/style.css">
+<style>
+  body { background: #24232b; color: white; font: 14px Arial; padding: 24px; }
+  #fixture { width: 300px; margin-top: 24px; }
+  #results { white-space: pre-wrap; }
+  /* Stand-ins for Foundry's icons and generic button sizing. */
+  button { width: 100%; font: inherit; }
+  #controls button { width: auto; }
+  .fas::before { content: "+"; display: inline-block; width: 14px; }
+  #at-rest-btn .fas::before { content: "↻"; }
+  #at-wizard-btn .fas::before { content: "⚒"; }
+  #at-sort-btn .fas::before { content: "▦"; }
+</style>
+<h1>Audio Tagger — browser regression checks</h1>
+<p>Serve the repository root over HTTP and open tests/browser-drag.html.
+  Uses the real palette markup, CSS and bundled Sortable. No Foundry data is accessed.</p>
+<div id="controls">
+  <button id="run">Check current styles</button>
+  <button id="baseline">Reproduce old drag styles</button>
+</div>
+<div id="fixture"></div>
+<pre id="results">Ready</pre>
+<script type="module">
+  import { PaletteRenderer } from "../scripts/ui/PaletteRenderer.js";
+  import { TagManager } from "../scripts/core/TagManager.js";
+  import Sortable from "../scripts/vendor/sortable.complete.esm.js";
+  const locale = await (await fetch("../lang/ru.json")).json();
+  globalThis.game = {
+    user: { isGM: true },
+    i18n: { localize: key => key.split(".").reduce((v, part) => v?.[part], locale) || key }
+  };
+  TagManager.isCollapsed = () => false;
+  TagManager.getSortedTags = () => [];
+  const view = new PaletteRenderer();
+  const fixture = document.querySelector("#fixture");
+  const results = document.querySelector("#results");
+  fixture.innerHTML = view._buildPaletteHTML();
+  const list = fixture.querySelector("#at-list");
+  list.innerHTML = ["Battle", "Mountains", "City", "Tavern", "Forest", "Ocean"]
+    .map(name => `<div class="audio-tagger-item" data-uuid="${name}">${name}</div>`).join("");
+  view._elements = { list, html: null };
+  view._createSortable(list, true);
+  // The test ends in place: no world persistence or rerender is needed.
+  TagManager.saveLayout = async () => {};
+  const legacy = document.createElement("style");
+  document.head.append(legacy);
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  async function run(oldStyles) {
+    document.querySelectorAll("#controls button").forEach(b => b.disabled = true);
+    legacy.textContent = oldStyles
+      ? ".audio-tagger-item.audio-tagger-fallback { transition: transform .1s ease; transform: scale(1.02); }"
+      : "";
+    const item = list.firstElementChild;
+    const rect = item.getBoundingClientRect();
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    const event = (target, type, px, py) => target.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse",
+      isPrimary: true, button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: px, clientY: py
+    }));
+    const samples = [];
+    try {
+      event(item, "pointerdown", x, y);
+      event(document, "pointermove", x + 5, y);
+      await pause(30);
+      for (let step = 1; step <= 20; step++) {
+        const dx = 5 + step * 5, dy = step * 3;
+        event(document, "pointermove", x + dx, y + dy);
+        const ghost = Sortable.ghost;
+        if (!ghost) throw new Error("Sortable did not create a fallback clone.");
+        const actual = ghost.getBoundingClientRect();
+        samples.push({
+          error: Math.hypot(actual.x - rect.x - dx, actual.y - rect.y - dy),
+          transition: getComputedStyle(ghost).transitionDuration
+        });
+        await pause(16);
+      }
+    } finally {
+      event(document, "pointerup", x, y);
+      // Synthetic pointer events do not generate compatibility mouse events.
+      document.dispatchEvent(new MouseEvent("mouseup", {
+        bubbles: true, cancelable: true, clientX: x, clientY: y
+      }));
+      legacy.textContent = "";
+      document.querySelectorAll("#controls button").forEach(b => b.disabled = false);
+    }
+    const maxError = Math.max(...samples.map(s => s.error));
+    const widths = [];
+    for (const width of [300, 260, 220]) {
+      fixture.style.width = `${width}px`;
+      const buttons = [...fixture.querySelectorAll(".audio-tagger-add-wrapper button")];
+      widths.push({ width, fits: buttons.every(b =>
+        b.scrollHeight <= b.clientHeight && b.scrollWidth <= b.clientWidth) });
+    }
+    fixture.style.width = "300px";
+    results.textContent = JSON.stringify({
+      mode: oldStyles ? "old styles (failure expected)" : "current styles",
+      dragPassed: maxError < 2, samples: samples.length, maxError,
+      transition: samples.at(-1)?.transition,
+      buttons: widths, cloneRemoved: !Sortable.ghost
+    }, null, 2);
+  }
+  document.querySelector("#run").onclick = () => run(false).catch(e => results.textContent = e.stack);
+  document.querySelector("#baseline").onclick = () => run(true).catch(e => results.textContent = e.stack);
+</script>
+</html>

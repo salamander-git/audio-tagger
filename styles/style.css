@@ -172,11 +172,12 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
 #audio-tagger-palette .audio-tagger-add-wrapper button.audio-tagger-add-button {
   padding: 0 0.5em;
   margin: 0;
-  height: 1.8em;
-  min-height: 0;
+  height: auto;
+  min-height: 1.8em;
   background: #28a745;
   color: #fff;
-  font-size: 0.9em;
+  font-size: 12px;
+  line-height: 1.2;
   border: none;
   border-radius: 0.2em;
   cursor: pointer;
@@ -184,6 +185,27 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
   align-items: center;
   gap: 0.3em;
   transition: background 0.2s ease;
+}
+
+#audio-tagger-palette .audio-tagger-add-wrapper button i {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+#audio-tagger-palette #at-rest-btn,
+#audio-tagger-palette #at-sort-btn {
+  flex: 0 0 2em;
+  justify-content: center;
+  padding: 0;
+}
+
+#audio-tagger-palette #at-wizard-btn,
+#audio-tagger-palette #at-add-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: center;
+  padding: 0.2em 0.4em;
+  white-space: normal;
 }
 
 #audio-tagger-palette .audio-tagger-add-wrapper button.audio-tagger-add-button:hover {
@@ -878,7 +900,18 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
   opacity: 1;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
   z-index: 10000;
-  transform: scale(1.02);
+}
+
+/* Sortable reads the clone's current matrix on every pointer move.
+   Interpolating that matrix loses movement deltas and makes the clone stall.
+   Keep this body-level clone independent of hover and sidebar containment. */
+.audio-tagger-item.audio-tagger-fallback {
+  transition: none;
+  transform: none;
+}
+
+.audio-tagger-fallback .audio-tagger-btn {
+  display: none !important;
 }
 
 /* Hide edit/delete buttons during drag */
