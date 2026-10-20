@@ -18,38 +18,6 @@ import {
 } from "./core/constants.js";
 
 /* -------------------------------------------- */
-/*  SortableJS Loading                          */
-/* -------------------------------------------- */
-
-let sortableLoaded = false;
-
-/**
- * Load SortableJS from CDN for drag-and-drop functionality.
- * @returns {Promise<void>}
- */
-async function loadSortableJS() {
-    if (sortableLoaded || typeof Sortable !== "undefined") {
-        sortableLoaded = true;
-        return;
-    }
-
-    return new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js";
-        script.onload = () => {
-            sortableLoaded = true;
-            log("Audio Tagger | SortableJS loaded");
-            resolve();
-        };
-        script.onerror = () => {
-            console.error("Audio Tagger | Failed to load SortableJS");
-            reject(new Error("Failed to load SortableJS"));
-        };
-        document.head.appendChild(script);
-    });
-}
-
-/* -------------------------------------------- */
 /*  Module Initialization                       */
 /* -------------------------------------------- */
 
@@ -64,9 +32,6 @@ Hooks.once("init", () => {
 
     // Initialize Smart Playlist feature
     SmartPlaylistInjector.init();
-
-    // Load SortableJS for drag-and-drop
-    loadSortableJS();
 
     // Register keybindings for audio playback
     registerKeybindings();
@@ -114,19 +79,22 @@ Hooks.once("ready", async () => {
 
     TagManager.applyInitialSettings();
 
-    if (game.user.isGM) {
-        await TagManager.initializeDefaultTags();
-
-        // Recover tags from imported playlists
-        for (const playlist of game.playlists) {
-            await TagAssignmentManager.recoverTags(playlist);
-            for (const sound of playlist.sounds) {
-                await TagAssignmentManager.recoverTags(sound);
+    try {
+        if (isRecoveryGM()) {
+            await TagManager.initializeDefaultTags();
+            for (const playlist of game.playlists) {
+                await TagAssignmentManager.recoverTags(playlist);
+                for (const sound of playlist.sounds) {
+                    await TagAssignmentManager.recoverTags(sound);
+                }
             }
         }
+    } catch (error) {
+        console.error("Audio Tagger | Initial tag recovery failed", error);
+        ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
+    } finally {
+        registerAPI();
     }
-
-    registerAPI();
 });
 
 /* -------------------------------------------- */
@@ -134,10 +102,14 @@ Hooks.once("ready", async () => {
 /* -------------------------------------------- */
 
 Hooks.on("audioTaggerTagUpdated", async (tag) => {
-    if (game.user.isGM) {
-        await TagAssignmentManager.syncTagSnapshots(tag.uuid);
+    try {
+        if (game.user.isGM) await TagAssignmentManager.syncTagSnapshots(tag.uuid);
+    } catch (error) {
+        console.error("Audio Tagger | Tag snapshot synchronization failed", error);
+        ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
+    } finally {
+        TagManager.requestRender();
     }
-    ui.playlists?.render();
 });
 
 Hooks.on("audioTaggerTagDeleted", async (tag) => {
@@ -146,53 +118,84 @@ Hooks.on("audioTaggerTagDeleted", async (tag) => {
     log(`Audio Tagger | Removing tag '${tag.name}' from all documents...`);
     const documents = TagAssignmentManager.getDocumentsWithTag(tag.uuid);
 
-    for (const doc of documents) {
-        await TagAssignmentManager.unassignTag(doc, tag.uuid, true);
+    try {
+        for (const doc of documents) await TagAssignmentManager.unassignTag(doc, tag.uuid, true);
+    } catch (error) {
+        console.error("Audio Tagger | Tag assignment cleanup failed", error);
+        ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
     }
 
     if (documents.length > 0 && TagManager.areNotificationsEnabled()) {
         ui.notifications.warn(game.i18n.format("AUDIO_TAGGER.TagDeletedWarning", { count: documents.length }));
     }
 
-    ui.playlists?.render();
+    TagManager.requestRender();
 });
 
 /* -------------------------------------------- */
 /*  Playlist Directory Rendering                */
 /* -------------------------------------------- */
 
-Hooks.on("renderPlaylistDirectory", (app, html) => {
+const directories = new Map();
+
+function renderDirectory(app, html) {
     const element = toElement(html);
-
-    // Render tag palette
-    PaletteRenderer.render(element);
-
-    // Render assigned tags on playlists and sounds
+    directories.set(app, element);
+    PaletteRenderer.render(element, app);
+    TagWizard.init(element, app);
     DirectoryTagRenderer.render(element);
+    if (TagWizard.isWizardActive()) TagWizard.refresh(element, app);
+}
 
-    // Render wizard UI if active
-    if (TagWizard.isWizardActive()) {
-        TagWizard.refresh(element);
-    }
+Hooks.on("renderPlaylistDirectory", renderDirectory);
+Hooks.on("closePlaylistDirectory", app => {
+    directories.delete(app);
+    PaletteRenderer.close(app);
+    TagWizard.close(app);
 });
 
-/* -------------------------------------------- */
-/*  Playlist Creation Hooks                     */
-/* -------------------------------------------- */
-
-Hooks.on("createPlaylist", async (playlist) => {
-    if (game.user.isGM) {
-        await TagAssignmentManager.recoverTags(playlist);
-        for (const sound of playlist.sounds) {
-            await TagAssignmentManager.recoverTags(sound);
+// Refresh our additions only. Foundry retains ownership of its render lifecycle,
+// playlist drag/drop, audio controls, focus and scroll positions.
+Hooks.on("audioTaggerRefresh", () => {
+    for (const [app, element] of directories) {
+        if (!element.isConnected) continue;
+        renderDirectory(app, element);
+        // Re-evaluate an active native search after names/assignments change.
+        const input = element.querySelector('input[name="search"]');
+        if (input?.value) {
+            input.dispatchEvent(new element.ownerDocument.defaultView.Event("input", { bubbles: true }));
         }
     }
 });
 
-Hooks.on("createPlaylistSound", async (sound) => {
-    if (game.user.isGM) {
-        await TagAssignmentManager.recoverTags(sound);
+function isRecoveryGM() {
+    const gm = game.users?.activeGM;
+    return game.user.isGM && (!gm || gm.id === game.user.id);
+}
+
+for (const type of ["Playlist", "PlaylistSound"]) {
+    for (const event of ["create", "update", "delete"]) {
+        Hooks.on(event + type, (doc, changes) => {
+            if (event === "update" && !Object.keys(changes || {}).some(key =>
+                key === "name" || key === "sounds" || key === "flags" || key.startsWith("flags."))) return;
+            TagAssignmentManager.invalidateIndex();
+            SearchIntegration.invalidateDocument(doc);
+            TagManager.requestRender();
+        });
     }
+}
+
+Hooks.on("createPlaylist", async playlist => {
+    if (!isRecoveryGM()) return;
+    try {
+        await TagAssignmentManager.recoverTags(playlist);
+        for (const sound of playlist.sounds) await TagAssignmentManager.recoverTags(sound);
+    } catch (error) { console.error("Audio Tagger | Playlist tag recovery failed", error); }
+});
+Hooks.on("createPlaylistSound", async sound => {
+    if (!isRecoveryGM()) return;
+    try { await TagAssignmentManager.recoverTags(sound); }
+    catch (error) { console.error("Audio Tagger | Sound tag recovery failed", error); }
 });
 
 /* -------------------------------------------- */

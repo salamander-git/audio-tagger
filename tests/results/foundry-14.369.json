@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-20",
+  "foundry": "14.369",
+  "system": { "id": "dnd5e", "version": "6.0.6" },
+  "moduleVersion": "1.5.4",
+  "moduleSource": "uncommitted working tree with drag-and-drop and Wizard improvements",
+  "localRegressionTests": { "passed": 39, "failed": 0 },
+  "integration": {
+    "method": "tests/live-foundry.js executed from a temporary GM script macro",
+    "passed": 26,
+    "failed": 0,
+    "covered": [
+      "client setting disabled by default",
+      "concurrent playlist assignment writes",
+      "preservation of unrelated document flags",
+      "embedded PlaylistSound assignment and removal",
+      "single palette in the v14 directory",
+      "bundled Sortable root and folder instances",
+      "destruction of old Sortables across four rebuilds",
+      "nested order persisted and restored after native directory render",
+      "Wizard controls on playlist and sound headers",
+      "query retained when reset is disabled",
+      "query cleared and input focused when reset is enabled",
+      "debounce does not restore cleared query",
+      "Wizard draft survives replacement of native headers",
+      "no duplicate add buttons",
+      "independent sidebar popout palette",
+      "cross-view tag transfer rejected",
+      "popout close destroys owned Sortables",
+      "Wizard writes real document assignments",
+      "assigned tags and core volume controls remain after save"
+    ],
+    "cleanup": {
+      "temporaryPlaylistDeleted": true,
+      "temporaryTagsDeleted": true,
+      "originalTagsExactlyUnchanged": true,
+      "originalHierarchyExactlyUnchanged": true,
+      "playingSoundIdsUnchanged": true
+    }
+  },
+  "mouseDrag": {
+    "withinFolder": "passed",
+    "folderToRoot": "passed",
+    "rootToFolder": "passed",
+    "orderAfterFullPageReload": "Beta, Alpha; passed",
+    "temporaryTagsAndMacroDeleted": true,
+    "finalTagCount": 31,
+    "finalHierarchy": {},
+    "finalClearWizardSearch": false
+  },
+  "deployment": {
+    "runtimeFilesHashMatched": 19,
+    "temporaryQaScriptRemoved": true
+  },
+  "limitations": [
+    "Foundry MCP server was reachable but MCP Bridge was disabled in this world; its exposed tools did not include arbitrary JavaScript execution.",
+    "The embedded browser crashed after the mouse tests. The cause was not established. The user reopened the page, after which persisted order was verified and cleanup completed.",
+    "Detached OS windows, touch input, other browser engines, concurrent GM clients and live v13 execution were not tested.",
+    "Existing audio was left playing; real audio switching and native playlist/sound dragging were not exercised in this session."
+  ]
+}

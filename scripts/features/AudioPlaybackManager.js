@@ -8,13 +8,14 @@ import { TagAssignmentManager } from "./TagAssignmentManager.js";
 export class AudioPlaybackManager {
     // Reference to currently playing sound for stop functionality
     static _currentSound = null;
+    static _playbackQueue = Promise.resolve();
 
     /**
      * Stop any currently playing sound that was started by this manager.
      */
-    static stopCurrent() {
+    static async stopCurrent() {
         if (this._currentSound && this._currentSound.playing) {
-            this._currentSound.update({ playing: false });
+            await this._currentSound.update({ playing: false });
         }
         this._currentSound = null;
     }
@@ -77,8 +78,11 @@ export class AudioPlaybackManager {
         const matchingSounds = [];
 
         for (const playlist of game.playlists) {
+            const inherited = new Set(TagAssignmentManager.getAssignedTags(playlist).map(a => a.uuid));
+            const remaining = requiredTags.filter(uuid => !inherited.has(uuid));
             for (const sound of playlist.sounds) {
-                if (this.soundMatchesTags(sound, requiredTags)) {
+                const assigned = new Set(TagAssignmentManager.getAssignedTags(sound).map(a => a.uuid));
+                if (remaining.every(uuid => assigned.has(uuid))) {
                     matchingSounds.push(sound);
                 }
             }
@@ -124,13 +128,19 @@ export class AudioPlaybackManager {
      * Play a specific sound, stopping any currently playing sound first.
      * @param {PlaylistSound} sound - The sound to play
      */
-    static async playSound(sound) {
+    static playSound(sound) {
+        const result = this._playbackQueue.catch(() => {}).then(() => this._playSound(sound));
+        this._playbackQueue = result;
+        return result;
+    }
+
+    static async _playSound(sound) {
         // Stop current sound first
-        this.stopCurrent();
+        await this.stopCurrent();
 
         // Start playing the new sound
-        this._currentSound = sound;
         await sound.update({ playing: true });
+        this._currentSound = sound;
 
         // Show notification
         if (TagManager.areNotificationsEnabled()) {

@@ -27,6 +27,7 @@ export class TagEditorDialog {
         return new Promise((resolve) => {
             let dialogInstance = null;
             let resolved = false;
+            let cleanupListeners = null;
 
             const dialogConfig = {
                 window: {
@@ -67,11 +68,14 @@ export class TagEditorDialog {
 
             dialogInstance = new foundry.applications.api.DialogV2(dialogConfig);
 
+            dialogInstance.addEventListener("close", () => cleanupListeners?.());
+
             // Attach listeners after render
             dialogInstance.addEventListener("render", (event) => {
                 const element = dialogInstance.element;
                 if (element) {
-                    this._attachEventListeners(element);
+                    cleanupListeners?.();
+                    cleanupListeners = this._attachEventListeners(element);
                     element.querySelector("#tagName")?.focus();
                 }
             });
@@ -95,7 +99,7 @@ export class TagEditorDialog {
             <div class="audio-tagger-dialog-content">
                 <div class="audio-tagger-form-row">
                     <label for="tagName">${game.i18n.localize("AUDIO_TAGGER.TagName")}</label>
-                    <input type="text" id="tagName" name="name" value="${tagData.name}" autocomplete="off" placeholder="${game.i18n.localize("AUDIO_TAGGER.EnterName")}">
+                    <input type="text" id="tagName" name="name" value="${foundry.utils.escapeHTML(tagData.name)}" autocomplete="off" placeholder="${game.i18n.localize("AUDIO_TAGGER.EnterName")}">
                 </div>
                 <div class="audio-tagger-form-row">
                     <label for="tagIcon">${game.i18n.localize("AUDIO_TAGGER.TagIcon")}</label>
@@ -112,7 +116,7 @@ export class TagEditorDialog {
                     <label>${game.i18n.localize("AUDIO_TAGGER.Preview")}</label>
                     <span class="audio-tagger-preview" id="tagPreview" style="background-color: ${tagData.backgroundColor}; color: ${tagData.textColor};">
                         <span id="iconPreview">${tagData.icon || ""}</span>
-                        <span id="namePreview">${tagData.name || game.i18n.localize("AUDIO_TAGGER.Example")}</span>
+                        <span id="namePreview">${foundry.utils.escapeHTML(tagData.name || game.i18n.localize("AUDIO_TAGGER.Example"))}</span>
                     </span>
                 </div>
                 <div class="audio-tagger-form-row">
@@ -160,7 +164,7 @@ export class TagEditorDialog {
                         ${categoriesHTML}
                     </div>
                 </div>
-                <input type="hidden" id="tagIcon" name="icon" value="${currentIcon}">
+                <input type="hidden" id="tagIcon" name="icon" value="${foundry.utils.escapeHTML(currentIcon)}">
             </div>
         `;
     }
@@ -200,6 +204,8 @@ export class TagEditorDialog {
         const iconSearch = element.querySelector("#iconSearch");
 
         let activeField = "bg";
+        let focusTimeout;
+        const ownerDocument = element.ownerDocument;
 
         const updatePreview = () => {
             if (namePreview) namePreview.textContent = nameInput.value || game.i18n.localize("AUDIO_TAGGER.Example");
@@ -255,18 +261,18 @@ export class TagEditorDialog {
             const rect = iconToggle.getBoundingClientRect();
 
             // Move to body for proper layering
-            document.body.appendChild(iconDropdown);
+            ownerDocument.body.appendChild(iconDropdown);
             iconDropdown.classList.add("open");
 
             // Position below button, ensure stays in viewport
             const dropHeight = 400;
-            const spaceBelow = window.innerHeight - rect.bottom;
+            const spaceBelow = ownerDocument.defaultView.innerHeight - rect.bottom;
             const top = spaceBelow > dropHeight ? rect.bottom + 4 : rect.top - dropHeight - 4;
 
             iconDropdown.style.top = `${Math.max(4, top)}px`;
-            iconDropdown.style.left = `${Math.min(rect.left, window.innerWidth - 340)}px`;
+            iconDropdown.style.left = `${Math.min(rect.left, ownerDocument.defaultView.innerWidth - 340)}px`;
 
-            setTimeout(() => iconSearch?.focus(), 50);
+            focusTimeout = setTimeout(() => iconSearch?.focus(), 50);
         };
 
         // Helper to hide dropdown - moves back to original position
@@ -281,7 +287,7 @@ export class TagEditorDialog {
             });
             // Move back to picker if in body
             const picker = element.querySelector(".at-icon-picker");
-            if (iconDropdown.parentElement === document.body && picker) {
+            if (iconDropdown.parentElement === ownerDocument.body && picker) {
                 picker.appendChild(iconDropdown);
             }
         };
@@ -319,15 +325,7 @@ export class TagEditorDialog {
                 hideDropdown();
             }
         };
-        document.addEventListener("click", closeOnClick);
-
-        // Cleanup on dialog close
-        element.closest(".application")?.addEventListener("close", () => {
-            document.removeEventListener("click", closeOnClick);
-            if (iconDropdown.parentElement === document.body) {
-                iconDropdown.remove();
-            }
-        }, { once: true });
+        ownerDocument.addEventListener("click", closeOnClick);
 
         element.addEventListener("input", (e) => {
             if (e.target.matches("#tagName")) updatePreview();
@@ -368,6 +366,11 @@ export class TagEditorDialog {
                 element.querySelector("#colorPalette").innerHTML = presetsHTML;
             }
         });
+        return () => {
+            clearTimeout(focusTimeout);
+            ownerDocument.removeEventListener("click", closeOnClick);
+            if (iconDropdown.parentElement === ownerDocument.body) iconDropdown.remove();
+        };
     }
 
     /**

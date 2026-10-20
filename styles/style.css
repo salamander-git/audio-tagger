@@ -860,7 +860,7 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
 }
 
 /* New sortable ghost class per specification */
-.sortable-ghost {
+.audio-tagger-ghost {
   opacity: 0.5;
   border: 1px dashed #007bff;
   background-color: #c8ebfb !important;
@@ -868,12 +868,12 @@ body.audio-tagger-limit-header-height .entry-name.playlist-name.ellipsis {
   color: transparent !important;
 }
 
-.sortable-ghost * {
+.audio-tagger-ghost * {
   visibility: hidden !important;
 }
 
 /* New sortable drag class per specification */
-.sortable-drag {
+.audio-tagger-drag {
   cursor: grabbing;
   opacity: 1;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;

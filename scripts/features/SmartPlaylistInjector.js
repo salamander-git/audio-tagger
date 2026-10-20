@@ -7,8 +7,7 @@ import { log, toElement } from "../core/constants.js";
  * Allows populating playlists with sounds based on tag selection.
  */
 export class SmartPlaylistInjector {
-    static _selectedTags = new Set();
-    static _currentPlaylistId = null;
+    static _selections = new WeakMap();
 
     /**
      * Initialize by registering the renderPlaylistConfig hook.
@@ -35,10 +34,10 @@ export class SmartPlaylistInjector {
         const playlist = app.document ?? app.object;
         if (!playlist) return;
 
-        // Reset selection when opening new playlist
-        if (this._currentPlaylistId !== playlist.id) {
-            this._selectedTags.clear();
-            this._currentPlaylistId = playlist.id;
+        let selectedTags = this._selections.get(app);
+        if (!selectedTags) {
+            selectedTags = new Set();
+            this._selections.set(app, selectedTags);
         }
 
         // Find insertion point - support legacy (.form-group.slim) and v14 ApplicationV2 layouts
@@ -51,15 +50,15 @@ export class SmartPlaylistInjector {
         if (element.querySelector(".at-smart-playlist")) return;
 
         // Build the Smart Playlist section
-        const section = document.createElement("div");
+        const section = element.ownerDocument.createElement("div");
         section.className = "at-smart-playlist form-group stacked";
-        section.innerHTML = this._buildSectionHTML();
+        section.innerHTML = this._buildSectionHTML(selectedTags);
 
         // Insert after slim group
         slimGroup.insertAdjacentElement("afterend", section);
 
         // Attach event listeners
-        this._attachListeners(section, playlist, app);
+        this._attachListeners(section, playlist, app, selectedTags);
     }
 
     /**
@@ -67,19 +66,19 @@ export class SmartPlaylistInjector {
      * @returns {string}
      * @private
      */
-    static _buildSectionHTML() {
+    static _buildSectionHTML(selectedTags) {
         const tags = Object.values(TagManager.getTags());
         const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
 
         const tagsHTML = sortedTags.map(tag => {
-            const isSelected = this._selectedTags.has(tag.uuid);
-            const iconHTML = tag.icon ? `<span class="at-tag-icon">${tag.icon}</span>` : "";
+            const isSelected = selectedTags.has(tag.uuid);
+            const iconHTML = tag.icon ? `<span class="at-tag-icon">${foundry.utils.escapeHTML(tag.icon)}</span>` : "";
             return `
                 <span class="at-smart-tag${isSelected ? " selected" : ""}" 
                       data-uuid="${tag.uuid}"
                       style="background-color: ${tag.backgroundColor}; color: ${tag.textColor};"
-                      title="${tag.name}">
-                    ${iconHTML}<span class="at-tag-name">${tag.name}</span>
+                      title="${foundry.utils.escapeHTML(tag.name)}">
+                    ${iconHTML}<span class="at-tag-name">${foundry.utils.escapeHTML(tag.name)}</span>
                 </span>
             `;
         }).join("");
@@ -114,18 +113,18 @@ export class SmartPlaylistInjector {
      * @param {Application} app - The PlaylistConfig application
      * @private
      */
-    static _attachListeners(section, playlist, app) {
+    static _attachListeners(section, playlist, app, selectedTags) {
         // Tag selection
         section.querySelectorAll(".at-smart-tag").forEach(tagEl => {
             tagEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 const uuid = tagEl.dataset.uuid;
 
-                if (this._selectedTags.has(uuid)) {
-                    this._selectedTags.delete(uuid);
+                if (selectedTags.has(uuid)) {
+                    selectedTags.delete(uuid);
                     tagEl.classList.remove("selected");
                 } else {
-                    this._selectedTags.add(uuid);
+                    selectedTags.add(uuid);
                     tagEl.classList.add("selected");
                 }
             });
@@ -136,7 +135,7 @@ export class SmartPlaylistInjector {
         populateBtn?.addEventListener("click", async (e) => {
             e.preventDefault();
 
-            if (this._selectedTags.size === 0) {
+            if (selectedTags.size === 0) {
                 if (TagManager.areNotificationsEnabled()) {
                     ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.SelectTagsFirst"));
                 }
@@ -146,7 +145,19 @@ export class SmartPlaylistInjector {
             const mode = section.querySelector('input[name="at-smart-mode"]:checked')?.value || "inclusive";
             const exclusive = mode === "exclusive";
 
-            await this._populatePlaylist(playlist, exclusive);
+            if (populateBtn.disabled) return;
+            populateBtn.disabled = true;
+            try {
+                await this._populatePlaylist(playlist, exclusive, selectedTags);
+                for (const tagEl of section.querySelectorAll(".at-smart-tag")) {
+                    tagEl.classList.toggle("selected", selectedTags.has(tagEl.dataset.uuid));
+                }
+            } catch (error) {
+                console.error("Audio Tagger | Smart playlist update failed", error);
+                ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
+            } finally {
+                populateBtn.disabled = false;
+            }
         });
     }
 
@@ -156,8 +167,8 @@ export class SmartPlaylistInjector {
      * @param {boolean} exclusive - If true, only sounds with EXACT tags match
      * @private
      */
-    static async _populatePlaylist(playlist, exclusive) {
-        const selectedUuids = [...this._selectedTags];
+    static async _populatePlaylist(playlist, exclusive, selectedTags) {
+        const selectedUuids = [...selectedTags];
         const matchingSounds = this._findMatchingSounds(selectedUuids, exclusive);
 
         if (matchingSounds.length === 0) {
@@ -171,7 +182,11 @@ export class SmartPlaylistInjector {
         const existingPaths = new Set(playlist.sounds.map(s => s.path));
 
         // Filter out sounds already in playlist
-        const newSounds = matchingSounds.filter(s => !existingPaths.has(s.path));
+        const newSounds = matchingSounds.filter(sound => {
+            if (existingPaths.has(sound.path)) return false;
+            existingPaths.add(sound.path);
+            return true;
+        });
 
         if (newSounds.length === 0) {
             if (TagManager.areNotificationsEnabled()) {
@@ -201,10 +216,10 @@ export class SmartPlaylistInjector {
         }
 
         // Clear selection
-        this._selectedTags.clear();
+        selectedTags.clear();
 
         // Re-render the config to update the UI
-        ui.playlists?.render();
+        TagManager.requestRender();
     }
 
     /**

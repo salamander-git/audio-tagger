@@ -14,6 +14,7 @@ export const SETTING_NOTIFICATIONS = "enableNotifications";
 export const SETTING_DEFAULT_TAG_ICONS = "defaultTagIcons";
 export const SETTING_SORT_MODE = "sortMode";
 export const SETTING_TAG_HIERARCHY = "tagHierarchy";
+export const SETTING_CLEAR_WIZARD_SEARCH = "clearWizardSearch";
 
 // Keybinding IDs
 export const KEYBIND_PLAY_FIRST = "playFirstMatchingSound";

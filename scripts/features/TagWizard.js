@@ -1,290 +1,175 @@
 import { TagAutocomplete } from "../ui/TagAutocomplete.js";
 import { TagManager } from "../core/TagManager.js";
-import { log, toElement } from "../core/constants.js";
+import { TagAssignmentManager } from "./TagAssignmentManager.js";
+import { toElement } from "../core/constants.js";
 
-/**
- * Manages the "Tag Wizard" mode for bulk tag assignments.
- * Injects add buttons directly into playlist/sound headers.
- */
+/** Drafts belong to documents, not to ephemeral Foundry directory elements. */
 export class TagWizard {
     static isActive = false;
-    static autocompletes = new Map(); // documentUuid -> TagAutocomplete instance
-    static html = null;
-    static _savedStates = new Map(); // documentUuid -> { selectedUuids, isOpen, searchQuery }
+    static isSaving = false;
+    static roots = new Map();
+    static autocompletes = new Map(); // header element -> component
+    static drafts = new Map(); // document UUID -> shared editable state
+    static viewStates = new Map(); // directory key -> dropdown state by UUID
 
-    /**
-     * Initializes the wizard with the playlist directory element.
-     * @param {HTMLElement} html - The playlist directory element.
-     */
-    static init(html) {
-        this.html = toElement(html);
-    }
+    static init(html, key = html) { this.roots.set(key, toElement(html)); }
 
-    /**
-     * Toggles the wizard mode on or off.
-     * Only available for GMs.
-     */
-    static async toggle() {
-        if (!game.user.isGM) {
-            ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.GMOnly"));
-            return;
-        }
-        this.isActive ? await this.deactivate() : this.activate();
-    }
-
-    /**
-     * Activates wizard mode.
-     * Only available for GMs.
-     */
-    static activate() {
-        if (!game.user.isGM) return;
-        if (this.isActive) return;
-        this.isActive = true;
-        log("Audio Tagger | Tag Wizard activated");
-
-        this.refresh(this.html);
-
-        // Show notification only on initial activation, not re-renders
-        if (TagManager.areNotificationsEnabled()) {
-            ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardActivated"));
-        }
-    }
-
-    /**
-     * Re-applies wizard UI to the new HTML (called on re-render).
-     * @param {HTMLElement} html - The new playlist directory HTML.
-     */
-    static refresh(html) {
-        if (!this.isActive) return;
-
-        this.html = toElement(html);
-
-        // Save state of all autocompletes before cleanup
-        this._saveAllStates();
-
-        // Destroy ALL autocompletes - their DOM elements are gone after Foundry re-render
-        for (const [uuid, ac] of this.autocompletes) {
+    static close(key) {
+        for (const [header, ac] of this.autocompletes) {
+            if (ac.viewKey !== key) continue;
             ac.destroy();
+            this.autocompletes.delete(header);
         }
-        this.autocompletes.clear();
-
-        this._updateWizardButton(true);
-        this._injectAddButtons();
-
-        // Restore saved states to new autocomplete instances
-        this._restoreAllStates();
+        this.roots.delete(key);
+        this.viewStates.delete(key);
     }
 
-    /**
-     * Saves the state of all autocomplete instances.
-     * @private
-     */
-    static _saveAllStates() {
-        for (const [uuid, ac] of this.autocompletes) {
-            this._savedStates.set(uuid, {
-                selectedUuids: new Set(ac.selectedUuids),
-                isOpen: ac.isOpen,
-                searchQuery: ac.searchQuery || ""
-            });
-        }
+    static async toggle() {
+        if (!game.user.isGM || this.isSaving) return;
+        if (this.isActive) await this.deactivate();
+        else this.activate();
     }
 
-    /**
-     * Restores saved states to autocomplete instances.
-     * @private
-     */
-    static _restoreAllStates() {
-        for (const [uuid, state] of this._savedStates) {
-            const ac = this.autocompletes.get(uuid);
-            if (ac && state) {
-                // Restore selected UUIDs
-                ac.selectedUuids = new Set(state.selectedUuids);
-                ac.searchQuery = state.searchQuery;
-
-                // Rebuild visual tags for restored state
-                this._rebuildVisualTags(ac);
-
-                // Re-render the dropdown options with restored state
-                if (state.isOpen) {
-                    ac._openDropdown();
-                    if (state.searchQuery) {
-                        ac.searchInput.value = state.searchQuery;
-                    }
-                }
-            }
-        }
+    static activate() {
+        if (!game.user.isGM || this.isActive) return;
+        this.isActive = true;
+        for (const [key, root] of this.roots) this.refresh(root, key);
+        if (TagManager.areNotificationsEnabled()) ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardActivated"));
     }
 
-    /**
-     * Rebuilds visual tags for an autocomplete after state restore.
-     * @param {TagAutocomplete} ac - The autocomplete instance.
-     * @private
-     */
-    static _rebuildVisualTags(ac) {
-        // Create container for visual tags
-        const header = ac.button.closest("header");
-        if (!header) return;
-
-        // Find or create container (any container, not just with data-document-uuid)
-        let container = header.parentElement.querySelector(".audio-tagger-assigned-tags");
-
-        if (!container && ac.selectedUuids.size > 0) {
-            container = document.createElement("div");
-            container.className = "audio-tagger-assigned-tags";
-            container.dataset.documentUuid = ac.document.uuid;
-            const isSound = header.parentElement.classList.contains("sound");
-            container.dataset.target = isSound ? "sound" : "playlist";
-            header.insertAdjacentElement("afterend", container);
+    static _getDraft(doc) {
+        let draft = this.drafts.get(doc.uuid);
+        const current = new Set(TagAssignmentManager.getAssignedTags(doc).map(a => a.uuid));
+        if (!draft) {
+            draft = { baseline: current, selectedUuids: new Set(current) };
+            this.drafts.set(doc.uuid, draft);
+        } else if (!this.isSaving) {
+            // Preserve local edits, accepting unrelated remote assignments.
+            const added = [...draft.selectedUuids].filter(id => !draft.baseline.has(id));
+            const removed = [...draft.baseline].filter(id => !draft.selectedUuids.has(id));
+            draft.selectedUuids.clear();
+            current.forEach(id => draft.selectedUuids.add(id));
+            added.filter(id => TagManager.getTag(id)).forEach(id => draft.selectedUuids.add(id));
+            removed.forEach(id => draft.selectedUuids.delete(id));
+            draft.baseline = current;
         }
-
-        if (!container) return;
-
-        // Mark as managed by Tag Wizard
-        if (!container.dataset.documentUuid) {
-            container.dataset.documentUuid = ac.document.uuid;
-        }
-
-        // Clear and rebuild
-        container.innerHTML = "";
-        for (const tagUuid of ac.selectedUuids) {
-            const tagEl = ac._createPendingTagElement(tagUuid);
-            if (tagEl) {
-                container.appendChild(tagEl);
-            }
-        }
-
-        // Remove empty container
-        if (container.children.length === 0) {
-            container.remove();
-        }
+        return draft;
     }
 
-    /**
-     * Deactivates wizard mode and saves all changes.
-     */
-    static async deactivate() {
+    static refresh(html, key = html) {
+        this.init(html, key);
         if (!this.isActive) return;
-        log("Audio Tagger | Tag Wizard deactivating and saving changes...");
-
-        if (TagManager.areNotificationsEnabled()) {
-            ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardSaving"), { permanent: true });
+        const root = toElement(html);
+        const states = this.viewStates.get(key) || new Map();
+        this.viewStates.set(key, states);
+        for (const [header, ac] of this.autocompletes) {
+            if (ac.viewKey !== key) continue;
+            if (header.isConnected && root.contains(header) && header.contains(ac.button)) continue;
+            states.set(ac.document.uuid, ac.getViewState());
+            ac.destroy();
+            this.autocompletes.delete(header);
         }
-
-        // Save all autocomplete instances
-        const savePromises = Array.from(this.autocompletes.values()).map(ac => ac.save());
-        await Promise.all(savePromises);
-
-        // Clean up all instances
-        this.autocompletes.forEach(ac => ac.destroy());
-        this.autocompletes.clear();
-        this._savedStates.clear();
-
-        this.isActive = false;
-        this._updateWizardButton(false);
-
-        // Re-render the directory to show updated tags
-        if (ui.playlists) {
-            await ui.playlists.render();
-        }
-
-        if (TagManager.areNotificationsEnabled()) {
-            ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardDeactivated"));
-        }
-    }
-
-    /**
-     * Updates the appearance and state of the wizard toggle button.
-     * @param {boolean} active - The new active state.
-     * @private
-     */
-    static _updateWizardButton(active) {
-        const wizardBtn = this.html?.querySelector("#at-wizard-btn");
-        if (!wizardBtn) return;
-
-        wizardBtn.classList.toggle("active", active);
-        const icon = wizardBtn.querySelector("i");
-        if (icon) {
-            icon.className = active ? "fas fa-save" : "fas fa-wand-magic-sparkles";
-        }
-        wizardBtn.title = game.i18n.localize(active ? "AUDIO_TAGGER.Save" : "AUDIO_TAGGER.TagWizard");
-    }
-
-    /**
-     * Injects add buttons into all playlist and sound headers.
-     * @private
-     */
-    static _injectAddButtons() {
-        const playlists = this.html.querySelectorAll(".playlist");
-
-        for (const playlistEl of playlists) {
+        const add = (element, doc, selector) => {
+            const header = element.querySelector(selector);
+            if (!header) return;
+            const draft = this._getDraft(doc);
+            let ac = this.autocompletes.get(header);
+            if (!ac) {
+                const button = root.ownerDocument.createElement("i");
+                button.className = "fas fa-plus at-header-add-btn";
+                button.dataset.documentUuid = doc.uuid;
+                button.title = game.i18n.localize("AUDIO_TAGGER.AddTag");
+                header.prepend(button);
+                ac = new TagAutocomplete(doc, button, draft, () => this._refreshDocument(doc.uuid), () => this.isSaving);
+                ac.viewKey = key;
+                this.autocompletes.set(header, ac);
+                const state = states.get(doc.uuid);
+                if (state) ac.restoreViewState(state);
+                states.delete(doc.uuid);
+            }
+            ac._renderVisualTags();
+            if (ac.isOpen) ac._renderOptions();
+        };
+        for (const playlistEl of root.querySelectorAll(".playlist")) {
             const playlist = game.playlists.get(playlistEl.dataset.entryId);
             if (!playlist) continue;
-
-            // Add button to playlist header
-            this._addButtonToHeader(playlistEl, playlist, ".playlist-header");
-
-            // Add buttons to sound headers
-            const sounds = playlistEl.querySelectorAll(".sound");
-            for (const soundEl of sounds) {
+            add(playlistEl, playlist, ":scope > .playlist-header");
+            for (const soundEl of playlistEl.querySelectorAll(".sound")) {
                 const sound = playlist.sounds.get(soundEl.dataset.soundId);
-                if (sound) {
-                    this._addButtonToHeader(soundEl, sound, "header");
-                }
+                if (sound) add(soundEl, sound, ":scope > header");
             }
         }
+        this._updateWizardButtons();
     }
 
-    /**
-     * Adds an add button to a specific header element.
-     * @param {HTMLElement} element - The DOM element for the document.
-     * @param {Document} doc - The Playlist or PlaylistSound document.
-     * @param {string} headerSelector - CSS selector for the header.
-     * @private
-     */
-    static _addButtonToHeader(element, doc, headerSelector) {
-        if (this.autocompletes.has(doc.uuid)) return;
-
-        const header = element.querySelector(headerSelector);
-        if (!header) return;
-
-        // Create the add button
-        const addBtn = document.createElement("i");
-        addBtn.className = "fas fa-plus at-header-add-btn";
-        addBtn.dataset.documentUuid = doc.uuid;
-        addBtn.title = game.i18n.localize("AUDIO_TAGGER.AddTag");
-
-
-        // Insert as first child of header
-        header.insertBefore(addBtn, header.firstChild);
-
-        // Create autocomplete attached to the button
-        const autocomplete = new TagAutocomplete(doc, addBtn);
-        this.autocompletes.set(doc.uuid, autocomplete);
-    }
-
-    /**
-     * Checks if the wizard is currently active.
-     * @returns {boolean}
-     */
-    static isWizardActive() {
-        return this.isActive;
-    }
-
-    /**
-     * Removes a tag from a document via the autocomplete (without triggering re-render).
-     * Used when Remove tag button is clicked while Tag Wizard is active.
-     * @param {string} documentUuid - The UUID of the document.
-     * @param {string} tagUuid - The UUID of the tag to remove.
-     * @returns {boolean} True if the tag was removed, false if not found.
-     */
-    static removeTagFromDocument(documentUuid, tagUuid) {
-        const autocomplete = this.autocompletes.get(documentUuid);
-        if (!autocomplete) return false;
-
-        if (autocomplete.selectedUuids.has(tagUuid)) {
-            autocomplete._toggleTag(tagUuid);
-            return true;
+    static _refreshDocument(uuid) {
+        for (const ac of this.autocompletes.values()) {
+            if (ac.document.uuid !== uuid) continue;
+            ac._renderVisualTags();
+            if (ac.isOpen) ac._renderOptions();
         }
-        return false;
+    }
+
+    static async deactivate() {
+        if (!this.isActive || this.isSaving) return;
+        this.isSaving = true;
+        this._updateWizardButtons();
+        let notification;
+        if (TagManager.areNotificationsEnabled()) notification = ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardSaving"), { permanent: true });
+        try {
+            const pending = [...this.drafts];
+            const failures = [];
+            // Bound writes and wait for every worker before cleanup or retry.
+            await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+                while (pending.length) {
+                    const [uuid, draft] = pending.shift();
+                    const doc = fromUuidSync(uuid);
+                    if (!doc) continue;
+                    try {
+                        await TagAssignmentManager.applySelection(doc, draft.selectedUuids, draft.baseline);
+                        draft.baseline = new Set(TagAssignmentManager.getAssignedTags(doc).map(a => a.uuid));
+                        draft.selectedUuids.clear();
+                        draft.baseline.forEach(id => draft.selectedUuids.add(id));
+                    } catch (error) { failures.push(error); }
+                }
+            }));
+            if (failures.length) throw failures[0];
+            this.isActive = false;
+            for (const ac of this.autocompletes.values()) ac.destroy();
+            this.autocompletes.clear();
+            this.drafts.clear();
+            this.viewStates.clear();
+            for (const root of this.roots.values()) root.querySelectorAll(".audio-tagger-assigned-tags[data-document-uuid]").forEach(el => el.remove());
+            if (TagManager.areNotificationsEnabled()) ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.WizardDeactivated"));
+        } catch (error) {
+            console.error("Audio Tagger | Wizard save failed; drafts retained", error);
+            ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
+        } finally {
+            this.isSaving = false;
+            if (notification !== undefined) ui.notifications.remove(notification);
+            this._updateWizardButtons();
+            TagManager.requestRender();
+        }
+    }
+
+    static _updateWizardButtons() {
+        for (const root of this.roots.values()) {
+            const button = root.querySelector("#at-wizard-btn");
+            if (!button) continue;
+            button.disabled = this.isSaving;
+            button.classList.toggle("active", this.isActive);
+            button.querySelector("i").className = this.isActive ? "fas fa-save" : "fas fa-wand-magic-sparkles";
+            button.title = game.i18n.localize(this.isActive ? "AUDIO_TAGGER.Save" : "AUDIO_TAGGER.TagWizard");
+        }
+    }
+
+    static isWizardActive() { return this.isActive; }
+
+    static removeTagFromDocument(uuid, tagUuid) {
+        if (this.isSaving) return false;
+        const draft = this.drafts.get(uuid);
+        if (!draft?.selectedUuids.delete(tagUuid)) return false;
+        this._refreshDocument(uuid);
+        return true;
     }
 }

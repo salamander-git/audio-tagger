@@ -1,6 +1,6 @@
 import { TagManager } from "../core/TagManager.js";
 import { TagAssignmentManager } from "../features/TagAssignmentManager.js";
-import { log } from "../core/constants.js";
+import { MODULE_ID, SETTING_CLEAR_WIZARD_SEARCH } from "../core/constants.js";
 
 
 /**
@@ -12,15 +12,26 @@ export class TagAutocomplete {
      * @param {Document} document - The Playlist or PlaylistSound document.
      * @param {HTMLElement} buttonElement - The button that triggers the dropdown.
      */
-    constructor(document, buttonElement) {
+    static _outsideRegistries = new WeakMap();
+
+    constructor(document, buttonElement, draft = null, onChange = null, isLocked = () => false) {
         this.document = document;
         this.button = buttonElement;
-        this.selectedUuids = new Set(TagAssignmentManager.getAssignedTags(this.document).map(a => a.uuid));
+        this.ownerDocument = buttonElement.ownerDocument;
+        this.draft = draft || { selectedUuids: new Set(TagAssignmentManager.getAssignedTags(document).map(a => a.uuid)) };
+        this.selectedUuids = this.draft.selectedUuids;
+        this.onChange = onChange;
+        this.isLocked = isLocked;
+        this._searchTimeout = null;
+        this._controller = new this.ownerDocument.defaultView.AbortController();
         this.isOpen = false;
         this.searchQuery = "";
 
-        this._createDropdown();
-        this._attachListeners();
+        this.button.addEventListener("click", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!this.isLocked()) this._toggleDropdown();
+        }, { signal: this._controller.signal });
     }
 
     /**
@@ -28,28 +39,29 @@ export class TagAutocomplete {
      * @private
      */
     _createDropdown() {
-        const dropdown = document.createElement("div");
+        const dropdown = this.ownerDocument.createElement("div");
         dropdown.className = "at-ac-dropdown";
         dropdown.style.display = "none";
         dropdown.dataset.documentUuid = this.document.uuid;
 
         // Search input
-        const searchInput = document.createElement("input");
+        const searchInput = this.ownerDocument.createElement("input");
         searchInput.type = "text";
         searchInput.className = "at-ac-search";
         searchInput.placeholder = game.i18n.localize("AUDIO_TAGGER.SearchTags");
         dropdown.appendChild(searchInput);
 
         // Options container
-        const optionsContainer = document.createElement("div");
+        const optionsContainer = this.ownerDocument.createElement("div");
         optionsContainer.className = "at-ac-options";
         dropdown.appendChild(optionsContainer);
 
-        document.body.appendChild(dropdown);
+        this.ownerDocument.body.appendChild(dropdown);
 
         this.dropdown = dropdown;
         this.searchInput = searchInput;
         this.optionsContainer = optionsContainer;
+        this._attachListeners();
     }
 
     /**
@@ -67,32 +79,32 @@ export class TagAutocomplete {
             : tags;
 
         if (filteredTags.length === 0) {
-            const noResults = document.createElement("div");
+            const noResults = this.ownerDocument.createElement("div");
             noResults.className = "at-ac-no-results";
             noResults.textContent = game.i18n.localize("AUDIO_TAGGER.NoTags");
             this.optionsContainer.appendChild(noResults);
             return;
         }
 
-        const fragment = document.createDocumentFragment();
+        const fragment = this.ownerDocument.createDocumentFragment();
 
         for (const tag of filteredTags) {
-            const option = document.createElement("div");
+            const option = this.ownerDocument.createElement("div");
             option.className = "at-ac-option";
             option.dataset.uuid = tag.uuid;
 
             const isSelected = this.selectedUuids.has(tag.uuid);
             if (isSelected) option.classList.add("selected");
 
-            const check = document.createElement("i");
+            const check = this.ownerDocument.createElement("i");
             check.className = isSelected ? "fas fa-check-circle at-ac-check" : "far fa-circle at-ac-check";
             check.style.color = tag.backgroundColor;
 
-            const colorBox = document.createElement("span");
+            const colorBox = this.ownerDocument.createElement("span");
             colorBox.className = "at-ac-color";
             colorBox.style.backgroundColor = tag.backgroundColor;
 
-            const label = document.createElement("span");
+            const label = this.ownerDocument.createElement("span");
             label.className = "at-ac-label";
             label.textContent = tag.name;
 
@@ -108,28 +120,20 @@ export class TagAutocomplete {
      * @private
      */
     _attachListeners() {
-        // Toggle dropdown on button click
-        this.button.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this._toggleDropdown();
-        });
-
         // Handle option selection - do NOT close dropdown
         this.optionsContainer.addEventListener("click", (e) => {
             const option = e.target.closest(".at-ac-option");
             if (option && !option.classList.contains("disabled")) {
                 e.stopPropagation();
-                this._toggleTag(option.dataset.uuid);
+                this._toggleTag(option.dataset.uuid, { fromOption: true });
             }
         });
 
         // Search input handling with debounce
-        let searchTimeout;
         this.searchInput.addEventListener("input", (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                this.searchQuery = e.target.value;
+            clearTimeout(this._searchTimeout);
+            this.searchQuery = e.target.value;
+            this._searchTimeout = setTimeout(() => {
                 this._renderOptions();
             }, 150);
         });
@@ -139,13 +143,6 @@ export class TagAutocomplete {
             e.stopPropagation();
         });
 
-        // Close dropdown when clicking outside
-        this._outsideClickHandler = (e) => {
-            if (!this.dropdown.contains(e.target) && !this.button.contains(e.target)) {
-                this._closeDropdown();
-            }
-        };
-        document.addEventListener("click", this._outsideClickHandler);
     }
 
     /**
@@ -160,12 +157,16 @@ export class TagAutocomplete {
      * Opens the dropdown.
      * @private
      */
-    _openDropdown() {
+    _openDropdown({ restore = false, focus = true } = {}) {
+        if (!this.dropdown) this._createDropdown();
+        clearTimeout(this._searchTimeout);
+        if (!restore) this.searchQuery = "";
+        this.searchInput.value = this.searchQuery;
         this._renderOptions();
 
         // Position dropdown using fixed positioning
         const rect = this.button.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
+        const viewportHeight = this.ownerDocument.defaultView.innerHeight;
         const dropdownHeight = Math.min(350, 200); // Estimate initial height
 
         // Position below button, but flip to above if not enough space
@@ -179,10 +180,8 @@ export class TagAutocomplete {
         this.dropdown.style.display = "block";
         this.isOpen = true;
 
-        // Focus search input
-        this.searchInput.value = "";
-        this.searchQuery = "";
-        this.searchInput.focus();
+        this._registerOutsideClick();
+        if (focus) this.searchInput.focus();
     }
 
     /**
@@ -190,8 +189,17 @@ export class TagAutocomplete {
      * @private
      */
     _closeDropdown() {
-        this.dropdown.style.display = "none";
+        clearTimeout(this._searchTimeout);
+        if (this.dropdown) this.dropdown.style.display = "none";
         this.isOpen = false;
+        const registry = TagAutocomplete._outsideRegistries.get(this.ownerDocument);
+        if (registry) {
+            registry.instances.delete(this);
+            if (!registry.instances.size) {
+                this.ownerDocument.removeEventListener("click", registry.handler);
+                TagAutocomplete._outsideRegistries.delete(this.ownerDocument);
+            }
+        }
     }
 
     /**
@@ -199,16 +207,26 @@ export class TagAutocomplete {
      * @param {string} uuid - The UUID of the tag to toggle.
      * @private
      */
-    _toggleTag(uuid) {
+    _toggleTag(uuid, { fromOption = false } = {}) {
+        if (this.isLocked()) return;
+        const adding = !this.selectedUuids.has(uuid);
         if (this.selectedUuids.has(uuid)) {
             this.selectedUuids.delete(uuid);
         } else {
             this.selectedUuids.add(uuid);
         }
-        // Re-render dropdown to update checkmarks
-        this._renderOptions();
-        // Update visual tags immediately
-        this._updateVisualTags(uuid);
+        const clear = fromOption && adding && game.settings.get(MODULE_ID, SETTING_CLEAR_WIZARD_SEARCH);
+        if (clear) {
+            clearTimeout(this._searchTimeout);
+            this.searchQuery = "";
+            this.searchInput.value = "";
+        }
+        if (this.onChange) this.onChange();
+        else {
+            if (this.isOpen) this._renderOptions();
+            this._renderVisualTags();
+        }
+        if (clear) this.searchInput.focus();
     }
 
     /**
@@ -216,52 +234,57 @@ export class TagAutocomplete {
      * @param {string} tagUuid - The UUID of the changed tag.
      * @private
      */
-    _updateVisualTags(tagUuid) {
-        // Find the header where button is located
-        const header = this.button.closest("header");
+    _renderVisualTags() {
+        const header = this.button.parentElement;
         if (!header) return;
-
-        // Find or create the tag container near the header
-        let container = header.parentElement.querySelector(".audio-tagger-assigned-tags");
-
-        if (!container && this.selectedUuids.has(tagUuid)) {
-            // Container doesn't exist but we're adding a tag, so create it
-            container = document.createElement("div");
+        let container = header.parentElement.querySelector(":scope > .audio-tagger-assigned-tags");
+        if (!this.selectedUuids.size) { container?.remove(); return; }
+        if (!container) {
+            container = this.ownerDocument.createElement("div");
             container.className = "audio-tagger-assigned-tags";
-
-            // Mark as managed by Tag Wizard
-            const isSound = header.parentElement.classList.contains("sound");
-            container.dataset.target = isSound ? "sound" : "playlist";
-            container.dataset.documentUuid = this.document.uuid;
-
             header.insertAdjacentElement("afterend", container);
         }
-
-        if (!container) return;
-
-        // Ensure container is marked as managed by Tag Wizard
-        if (!container.dataset.documentUuid) {
-            container.dataset.documentUuid = this.document.uuid;
+        container.dataset.documentUuid = this.document.uuid;
+        container.dataset.target = header.parentElement.classList.contains("sound") ? "sound" : "playlist";
+        const signature = "wizard:" + JSON.stringify([...this.selectedUuids].map(uuid => {
+            const tag = TagManager.getTag(uuid);
+            return [uuid, tag?.name, tag?.icon, tag?.backgroundColor, tag?.textColor];
+        }));
+        if (container.dataset.signature === signature) return;
+        container.dataset.signature = signature;
+        container.replaceChildren();
+        for (const uuid of this.selectedUuids) {
+            const tag = this._createPendingTagElement(uuid);
+            if (tag) container.appendChild(tag);
         }
+    }
 
-        // If tag is selected, ensure it's in the DOM
-        if (this.selectedUuids.has(tagUuid)) {
-            // Check if already there
-            if (!container.querySelector(`[data-tag-uuid="${tagUuid}"]`)) {
-                const tagEl = this._createPendingTagElement(tagUuid);
-                if (tagEl) {
-                    container.appendChild(tagEl);
+    _registerOutsideClick() {
+        let registry = TagAutocomplete._outsideRegistries.get(this.ownerDocument);
+        if (!registry) {
+            registry = { instances: new Set() };
+            registry.handler = event => {
+                for (const ac of [...registry.instances]) {
+                    if (!ac.dropdown.contains(event.target) && !ac.button.contains(event.target)) ac._closeDropdown();
                 }
-            }
-        } else {
-            // If tag is deselected, remove from DOM
-            const existing = container.querySelector(`[data-tag-uuid="${tagUuid}"]`);
-            if (existing) existing.remove();
+            };
+            TagAutocomplete._outsideRegistries.set(this.ownerDocument, registry);
+            this.ownerDocument.addEventListener("click", registry.handler);
+        }
+        registry.instances.add(this);
+    }
 
-            // If container empty, remove it
-            if (container.children.length === 0) {
-                container.remove();
-            }
+    getViewState() {
+        return { isOpen: this.isOpen, searchQuery: this.searchQuery,
+            focused: this.ownerDocument.activeElement === this.searchInput,
+            scrollTop: this.optionsContainer?.scrollTop || 0 };
+    }
+
+    restoreViewState(state) {
+        this.searchQuery = state.searchQuery || "";
+        if (state.isOpen) {
+            this._openDropdown({ restore: true, focus: state.focused });
+            this.optionsContainer.scrollTop = state.scrollTop || 0;
         }
     }
 
@@ -275,7 +298,7 @@ export class TagAutocomplete {
         const tag = TagManager.getTag(tagUuid);
         if (!tag) return null;
 
-        const span = document.createElement("span");
+        const span = this.ownerDocument.createElement("span");
         span.className = "audio-tagger-assigned-tag at-pending-tag";
         span.style.backgroundColor = tag.backgroundColor;
         span.style.color = tag.textColor;
@@ -284,19 +307,19 @@ export class TagAutocomplete {
 
         // Add icon if present
         if (tag.icon) {
-            const iconSpan = document.createElement("span");
+            const iconSpan = this.ownerDocument.createElement("span");
             iconSpan.className = "at-tag-icon";
             iconSpan.textContent = tag.icon;
             span.appendChild(iconSpan);
         }
 
-        const nameSpan = document.createElement("span");
+        const nameSpan = this.ownerDocument.createElement("span");
         nameSpan.textContent = tag.name;
         span.appendChild(nameSpan);
 
         // Remove button - calls _toggleTag to update selectedUuids
         if (game.user.isGM) {
-            const btn = document.createElement("i");
+            const btn = this.ownerDocument.createElement("i");
             btn.className = "fas fa-times remove-tag";
             btn.title = game.i18n.localize("AUDIO_TAGGER.RemoveAssignment");
             btn.addEventListener("click", (e) => {
@@ -316,21 +339,8 @@ export class TagAutocomplete {
      * @returns {Promise<void>}
      */
     async save() {
-        const currentUuids = new Set(TagAssignmentManager.getAssignedTags(this.document).map(a => a.uuid));
-
-        const toAdd = [...this.selectedUuids].filter(uuid => !currentUuids.has(uuid));
-        const toRemove = [...currentUuids].filter(uuid => !this.selectedUuids.has(uuid));
-
-        for (const uuid of toRemove) {
-            await TagAssignmentManager.unassignTag(this.document, uuid);
-        }
-        for (const uuid of toAdd) {
-            await TagAssignmentManager.assignTag(this.document, uuid);
-        }
-
-        if (toAdd.length > 0 || toRemove.length > 0) {
-            log(`Audio Tagger | Saved tags for '${this.document.name}'. Added: ${toAdd.length}, Removed: ${toRemove.length}`);
-        }
+        const baseline = this.draft.baseline || new Set(TagAssignmentManager.getAssignedTags(this.document).map(a => a.uuid));
+        return TagAssignmentManager.applySelection(this.document, this.selectedUuids, baseline);
     }
 
     /**
@@ -338,7 +348,7 @@ export class TagAutocomplete {
      */
     destroy() {
         this._closeDropdown();
-        document.removeEventListener("click", this._outsideClickHandler);
+        this._controller.abort();
         this.dropdown?.remove();
         this.button?.remove();
     }

@@ -121,7 +121,10 @@
       "EnableNotifications": "Enable notifications",
       "EnableNotificationsHint": "Show notifications when creating, editing or deleting tags.",
       "DefaultTagIcons": "Show icons on default tags",
-      "DefaultTagIconsHint": "Show emoji icons on default tags. Changes apply immediately to default tags only."
-    }
+      "DefaultTagIconsHint": "Show emoji icons on default tags. Changes apply immediately to default tags only.",
+      "ClearWizardSearch": "Clear search after adding a tag in Tag Wizard",
+      "ClearWizardSearchHint": "After adding a tag from the results, clear the search and focus the input for the next tag. Disabled by default."
+    },
+    "ErrorPlayback": "Could not play audio. See the console for details."
   }
 }

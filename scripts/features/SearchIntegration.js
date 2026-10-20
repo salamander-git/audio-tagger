@@ -9,6 +9,13 @@ import { log } from "../core/constants.js";
  */
 export class SearchIntegration {
     static _initialized = false;
+    static _documents = new WeakMap();
+    static _cleanFallback = value => value.toLowerCase().trim();
+
+    static invalidateDocument(doc) {
+        this._documents.delete(doc);
+        if (doc.sounds) for (const sound of doc.sounds) this._documents.delete(sound);
+    }
 
     /**
      * Initialize by patching PlaylistDirectory's search method.
@@ -32,7 +39,11 @@ export class SearchIntegration {
      */
     static _patchSearch() {
         const PlaylistDirectory = foundry.applications.sidebar.tabs.PlaylistDirectory;
-        const original = PlaylistDirectory.prototype._matchSearchEntries;
+        const original = PlaylistDirectory?.prototype._matchSearchEntries;
+        if (typeof original !== "function") {
+            console.warn("Audio Tagger | Playlist search extension unavailable");
+            return;
+        }
 
         PlaylistDirectory.prototype._matchSearchEntries = function (query, entryIds, folderIds, autoExpandIds, options = {}) {
             // Call original method first
@@ -47,10 +58,10 @@ export class SearchIntegration {
             // Resolve SearchFilter.cleanQuery across API versions (v13: ux, v14: may move)
             const clean = foundry.applications.ux?.SearchFilter?.cleanQuery
                 ?? foundry.utils.SearchFilter?.cleanQuery
-                ?? ((s) => s.toLowerCase().trim());
+                ?? SearchIntegration._cleanFallback;
 
             // Get raw search query from input field
-            const searchInput = document.querySelector('.directory[data-tab="playlists"] input[name="search"]');
+            const searchInput = this.element?.querySelector('input[name="search"]');
             const rawQuery = searchInput?.value?.trim() || "";
 
             if (!rawQuery) return;
@@ -111,24 +122,29 @@ export class SearchIntegration {
      * @private
      */
     static _documentMatchesAllTerms(doc, searchTerms, clean) {
-        // Get document name
-        const docName = clean(doc.name || "").toLowerCase();
-
-        // Get all tag names
+        let cached = this._documents.get(doc);
         const assignments = TagAssignmentManager.getAssignedTags(doc);
-        const tagNames = (assignments || []).map(assignment => {
-            const tag = TagManager.getTag(assignment.uuid);
-            const name = tag?.name || assignment.snapshot?.name || "";
-            return clean(name).toLowerCase();
-        }).filter(name => name);
+        if (!cached || cached.name !== doc.name || cached.assignments !== assignments
+            || cached.revision !== TagManager.revision || cached.clean !== clean
+            || cached.assignmentRevision !== TagAssignmentManager.revision) {
+            const docName = clean(doc.name || "").toLowerCase();
+            const tagNames = assignments.map(assignment => {
+                const tag = TagManager.getTag(assignment.uuid);
+                const name = tag?.name || assignment.snapshot?.name || "";
+                return clean(name).toLowerCase();
+            }).filter(Boolean);
+            cached = { name: doc.name, assignments, revision: TagManager.revision, clean,
+                assignmentRevision: TagAssignmentManager.revision, docName, tagNames };
+            this._documents.set(doc, cached);
+        }
 
         // Check if ALL search terms match (in name OR tags)
         return searchTerms.every(term => {
             // Check if term is in document name
-            if (docName.includes(term)) return true;
+            if (cached.docName.includes(term)) return true;
 
             // Check if term matches any tag
-            return tagNames.some(tagName => tagName.includes(term));
+            return cached.tagNames.some(tagName => tagName.includes(term));
         });
     }
 }

@@ -22,13 +22,13 @@ export class DirectoryTagRenderer {
             const playlist = game.playlists.get(playlistId);
             if (!playlist) continue;
 
-            this._renderTags(playlistEl, playlist, ".playlist-header");
+            this._renderTags(playlistEl, playlist, ":scope > .playlist-header");
 
             for (const soundEl of playlistEl.querySelectorAll(".sound")) {
                 const soundId = soundEl.dataset.soundId;
                 const sound = playlist.sounds.get(soundId);
                 if (sound) {
-                    this._renderTags(soundEl, sound, "header");
+                    this._renderTags(soundEl, sound, ":scope > header");
                 }
             }
         }
@@ -79,11 +79,11 @@ export class DirectoryTagRenderer {
      */
     static _renderTags(element, doc, anchorSelector) {
         const assignments = TagAssignmentManager.getAssignedTags(doc);
-        let container = element.querySelector(".audio-tagger-assigned-tags");
+        let container = element.querySelector(":scope > .audio-tagger-assigned-tags");
 
         // Skip containers managed by Tag Wizard (have document-uuid attribute)
         // They will be handled by TagAutocomplete
-        if (container && container.dataset.documentUuid) {
+        if (container && container.dataset.documentUuid && TagWizard.isWizardActive()) {
             return;
         }
 
@@ -98,32 +98,21 @@ export class DirectoryTagRenderer {
 
         // Create container if it doesn't exist
         if (!container) {
-            container = document.createElement("div");
+            container = element.ownerDocument.createElement("div");
             container.className = "audio-tagger-assigned-tags";
             anchor.insertAdjacentElement("afterend", container);
         }
 
-        // Build sets for differential update
-        const existingUuids = new Set(
-            [...container.querySelectorAll(".audio-tagger-assigned-tag")].map(el => el.dataset.tagUuid)
-        );
-        const newUuids = new Set(assignments.map(a => a.uuid));
-
-        // Remove tags no longer assigned
-        for (const child of [...container.querySelectorAll(".audio-tagger-assigned-tag")]) {
-            if (!newUuids.has(child.dataset.tagUuid)) {
-                child.remove();
-            }
-        }
-
-        // Add new tags (that don't already exist)
+        const signature = JSON.stringify(assignments.map(a => {
+            const data = TagManager.getTag(a.uuid) || a.snapshot;
+            return [a.uuid, data?.name, data?.icon, data?.backgroundColor, data?.textColor];
+        }));
+        if (container.dataset.signature === signature) return;
+        container.dataset.signature = signature;
+        container.replaceChildren();
         for (const assignment of assignments) {
-            if (existingUuids.has(assignment.uuid)) continue;
-
-            const tagEl = this._createTagElement(assignment, doc);
-            if (tagEl) {
-                container.appendChild(tagEl);
-            }
+            const tagEl = this._createTagElement(assignment, doc, element.ownerDocument);
+            if (tagEl) container.appendChild(tagEl);
         }
     }
 
@@ -136,15 +125,15 @@ export class DirectoryTagRenderer {
      */
     static _renderTagsSimple(element, assignments, anchorSelector) {
         // Remove existing container
-        const existing = element.querySelector(".audio-tagger-assigned-tags");
+        const existing = element.querySelector(":scope > .audio-tagger-assigned-tags");
         if (existing) existing.remove();
 
         if (!assignments?.length) return;
 
-        const anchor = element.querySelector(anchorSelector);
+        const anchor = element.querySelector(anchorSelector) || element.querySelector(".sound-name");
         if (!anchor) return;
 
-        const container = document.createElement("div");
+        const container = element.ownerDocument.createElement("div");
         container.className = "audio-tagger-assigned-tags";
 
         for (const assignment of assignments) {
@@ -152,7 +141,7 @@ export class DirectoryTagRenderer {
             const data = tag || assignment.snapshot;
             if (!data) continue;
 
-            const span = document.createElement("span");
+            const span = element.ownerDocument.createElement("span");
             span.className = "audio-tagger-assigned-tag";
             span.style.backgroundColor = data.backgroundColor;
             span.style.color = data.textColor;
@@ -160,13 +149,13 @@ export class DirectoryTagRenderer {
 
             // Add icon if present
             if (data.icon) {
-                const iconSpan = document.createElement("span");
+                const iconSpan = element.ownerDocument.createElement("span");
                 iconSpan.className = "at-tag-icon";
                 iconSpan.textContent = data.icon;
                 span.appendChild(iconSpan);
             }
 
-            const nameSpan = document.createElement("span");
+            const nameSpan = element.ownerDocument.createElement("span");
             nameSpan.textContent = data.name;
             span.appendChild(nameSpan);
 
@@ -182,12 +171,12 @@ export class DirectoryTagRenderer {
      * @param {Document} [doc] - Optional document for remove button
      * @returns {HTMLElement|null}
      */
-    static _createTagElement(assignment, doc = null) {
+    static _createTagElement(assignment, doc = null, ownerDocument = document) {
         const tag = TagManager.getTag(assignment.uuid);
         const data = tag || assignment.snapshot;
         if (!data) return null;
 
-        const span = document.createElement("span");
+        const span = ownerDocument.createElement("span");
         span.className = "audio-tagger-assigned-tag";
         span.style.backgroundColor = data.backgroundColor;
         span.style.color = data.textColor;
@@ -196,19 +185,19 @@ export class DirectoryTagRenderer {
 
         // Add icon if present
         if (data.icon) {
-            const iconSpan = document.createElement("span");
+            const iconSpan = ownerDocument.createElement("span");
             iconSpan.className = "at-tag-icon";
             iconSpan.textContent = data.icon;
             span.appendChild(iconSpan);
         }
 
-        const nameSpan = document.createElement("span");
+        const nameSpan = ownerDocument.createElement("span");
         nameSpan.textContent = data.name;
         span.appendChild(nameSpan);
 
         // Remove button (GM only, if document provided)
         if (doc && game.user.isGM) {
-            const btn = document.createElement("i");
+            const btn = ownerDocument.createElement("i");
             btn.className = "fas fa-times remove-tag";
             btn.title = game.i18n.localize("AUDIO_TAGGER.RemoveAssignment");
             btn.addEventListener("click", async (e) => {

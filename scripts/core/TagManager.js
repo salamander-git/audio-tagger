@@ -8,11 +8,13 @@ import {
     SETTING_DEFAULT_TAG_ICONS,
     SETTING_SORT_MODE,
     SETTING_TAG_HIERARCHY,
+    SETTING_CLEAR_WIZARD_SEARCH,
     DEFAULT_BG_COLOR,
     DEFAULT_TEXT_COLOR,
     normalizeHexColor,
     log
 } from "./constants.js";
+import { childrenOf, normalizeHierarchy, sameHierarchy } from "./TagLayout.js";
 
 /**
  * TagManager - Central management class for tag operations
@@ -21,7 +23,47 @@ import {
 export class TagManager {
 
     static _cache = null;
-    static _sortCache = new Map(); // mode -> { tags: [], hash: string }
+    static _sortCache = new Map();
+    static _brightness = new Map();
+    static revision = 0;
+    static _writes = Promise.resolve();
+    static _renderPending = false;
+    static _batchDepth = 0;
+
+    static requestRender() {
+        if (this._renderPending) return;
+        this._renderPending = true;
+        queueMicrotask(() => {
+            if (this._batchDepth) return;
+            this._renderPending = false;
+            Hooks.callAll("audioTaggerRefresh");
+        });
+    }
+
+    static _enqueue(operation) {
+        const result = this._writes.catch(() => {}).then(async () => {
+            this._batchDepth++;
+            try {
+                return await operation();
+            } finally {
+                this._batchDepth--;
+                if (!this._batchDepth && this._renderPending) {
+                    this._renderPending = false;
+                    this.requestRender();
+                }
+            }
+        });
+        this._writes = result;
+        return result;
+    }
+
+    static async _writeTags(tags) {
+        // Never persist derived cache data from older module versions.
+        for (const tag of Object.values(tags)) delete tag._brightness;
+        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        this._invalidateCache();
+        this.requestRender();
+    }
 
     static DEFAULT_PRESETS = [
         "#ff595e", "#ffca3a", "#8ac926", "#1982c4",
@@ -83,7 +125,7 @@ export class TagManager {
             onChange: () => {
                 this._invalidateCache();
                 // Trigger re-render to update tag display
-                ui.playlists?.render();
+                this.requestRender();
             }
         });
 
@@ -120,7 +162,7 @@ export class TagManager {
             default: {},
             onChange: () => {
                 this._invalidateCache();
-                ui.playlists?.render();
+                this.requestRender();
             }
         });
 
@@ -135,6 +177,16 @@ export class TagManager {
             onChange: (value) => {
                 document.body.classList.toggle("audio-tagger-limit-header-height", value);
             }
+        });
+
+        // Optional Wizard behavior, kept separate from notification settings.
+        game.settings.register(MODULE_ID, SETTING_CLEAR_WIZARD_SEARCH, {
+            name: "AUDIO_TAGGER.Settings.ClearWizardSearch",
+            hint: "AUDIO_TAGGER.Settings.ClearWizardSearchHint",
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: false
         });
 
         // Enable/disable notifications setting
@@ -156,7 +208,9 @@ export class TagManager {
             type: Boolean,
             default: true,
             onChange: (showIcons) => {
-                this._updateDefaultTagsIcons(showIcons);
+                if (game.user.isGM) {
+                    this._enqueue(() => this._updateDefaultTagsIcons(showIcons)).catch(console.error);
+                }
             }
         });
 
@@ -277,9 +331,7 @@ export class TagManager {
         }
 
         if (changed) {
-            await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
-            this._invalidateCache();
-            ui.playlists?.render();
+            await this._writeTags(tags);
 
             if (this.areNotificationsEnabled()) {
                 const msgKey = showIcons ? "AUDIO_TAGGER.IconsEnabled" : "AUDIO_TAGGER.IconsDisabled";
@@ -295,13 +347,8 @@ export class TagManager {
     static getTags() {
         if (!this._cache) {
             try {
-                this._cache = game.settings.get(MODULE_ID, SETTING_TAGS) || {};
-                // Precalculate brightness for sorting performance
-                Object.values(this._cache).forEach(tag => {
-                    if (!tag._brightness) {
-                        tag._brightness = this._getBrightness(tag.backgroundColor);
-                    }
-                });
+                this._cache = foundry.utils.deepClone(game.settings.get(MODULE_ID, SETTING_TAGS) || {});
+                for (const tag of Object.values(this._cache)) delete tag._brightness;
             } catch (e) {
                 return {};
             }
@@ -312,18 +359,8 @@ export class TagManager {
     static _invalidateCache() {
         this._cache = null;
         this._sortCache.clear();
-    }
-
-    /**
-     * Get a hash of current tags for cache invalidation.
-     * @returns {string}
-     * @private
-     */
-    static _getTagsHash() {
-        const tags = this.getTags();
-        const keys = Object.keys(tags).sort();
-        const updates = keys.map(k => tags[k].updatedAt || 0);
-        return `${keys.length}:${updates.join(',')}`;
+        this._brightness.clear();
+        this.revision++;
     }
 
     static getTag(uuid) {
@@ -332,19 +369,20 @@ export class TagManager {
 
 
     static _getBrightness(hex) {
+        hex = normalizeHexColor(hex, DEFAULT_BG_COLOR);
+        if (this._brightness.has(hex)) return this._brightness.get(hex);
         const r = parseInt(hex.substr(1, 2), 16);
         const g = parseInt(hex.substr(3, 2), 16);
         const b = parseInt(hex.substr(5, 2), 16);
-        return (r * 299 + g * 587 + b * 114) / 1000;
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        this._brightness.set(hex, brightness);
+        return brightness;
     }
 
     static getSortedTags(mode = 'order') {
         // Check cache first
-        const hash = this._getTagsHash();
         const cached = this._sortCache.get(mode);
-        if (cached && cached.hash === hash) {
-            return cached.tags;
-        }
+        if (cached) return cached;
 
         const tags = Object.values(this.getTags());
         let result;
@@ -358,11 +396,11 @@ export class TagManager {
                 break;
             case 'color-brightness-dark':
                 // Dark to Light
-                result = tags.sort((a, b) => (a._brightness || this._getBrightness(a.backgroundColor)) - (b._brightness || this._getBrightness(b.backgroundColor)));
+                result = tags.sort((a, b) => this._getBrightness(a.backgroundColor) - this._getBrightness(b.backgroundColor));
                 break;
             case 'color-brightness':
                 // Light to Dark
-                result = tags.sort((a, b) => (b._brightness || this._getBrightness(b.backgroundColor)) - (a._brightness || this._getBrightness(a.backgroundColor)));
+                result = tags.sort((a, b) => this._getBrightness(b.backgroundColor) - this._getBrightness(a.backgroundColor));
                 break;
             case 'order':
             default:
@@ -370,19 +408,34 @@ export class TagManager {
         }
 
         // Cache the result
-        this._sortCache.set(mode, { tags: result, hash });
+        this._sortCache.set(mode, result);
         return result;
     }
 
-    static async createTag(tagData) {
+    static createTag(tagData) {
+        return this._enqueue(() => this._createTag(tagData));
+    }
+
+    static updateTag(uuid, updates) {
+        return this._enqueue(() => this._updateTag(uuid, updates));
+    }
+
+    static deleteTag(uuid) {
+        return this._enqueue(() => this._deleteTag(uuid));
+    }
+
+    static async _createTag(tagData) {
         const tags = foundry.utils.deepClone(this.getTags());
         const uuid = tagData.uuid || `Tag.${foundry.utils.randomID()}`;
+        // Concurrent recovery of the same imported tag must not overwrite edits.
+        if (tags[uuid]) return tags[uuid];
         const now = Date.now();
 
         const newTag = {
             uuid,
             name: tagData.name,
             icon: tagData.icon || "",
+            isFolder: Boolean(tagData.isFolder),
             backgroundColor: tagData.backgroundColor || "#6c757d",
             textColor: tagData.textColor || "#ffffff",
             order: Object.keys(tags).length,
@@ -391,33 +444,35 @@ export class TagManager {
         };
 
         tags[uuid] = newTag;
-        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        await this._writeTags(tags);
         Hooks.callAll("audioTaggerTagCreated", newTag);
         log(`Audio Tagger | Created tag: ${newTag.name}`);
         return newTag;
     }
 
-    static async updateTag(uuid, updates) {
+    static async _updateTag(uuid, updates) {
         const tags = foundry.utils.deepClone(this.getTags());
         const tag = tags[uuid];
         if (!tag) throw new Error(`Tag with UUID ${uuid} not found`);
 
+        if (tag.isFolder && updates.isFolder === false) await this._releaseChildren(uuid, tags);
         const updatedTag = { ...tag, ...updates, uuid, updatedAt: Date.now() };
         tags[uuid] = updatedTag;
-        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        await this._writeTags(tags);
         Hooks.callAll("audioTaggerTagUpdated", updatedTag);
         log(`Audio Tagger | Updated tag: ${updatedTag.name}`);
         return updatedTag;
     }
 
-    static async deleteTag(uuid) {
+    static async _deleteTag(uuid) {
         const tags = foundry.utils.deepClone(this.getTags());
         if (!tags[uuid]) return false;
 
         const deletedTag = tags[uuid];
+        await this._releaseChildren(uuid, tags, true);
         delete tags[uuid];
 
-        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        await this._writeTags(tags);
         Hooks.callAll("audioTaggerTagDeleted", deletedTag);
         log(`Audio Tagger | Deleted tag: ${deletedTag.name}`);
         return true;
@@ -430,15 +485,16 @@ export class TagManager {
      */
     static async reorderTags(uuids) {
         const tags = foundry.utils.deepClone(this.getTags());
-
+        let changed = false;
         uuids.forEach((uuid, index) => {
-            if (tags[uuid]) {
+            if (tags[uuid] && tags[uuid].order !== index) {
                 tags[uuid].order = index;
                 tags[uuid].updatedAt = Date.now();
+                changed = true;
             }
         });
 
-        await game.settings.set(MODULE_ID, SETTING_TAGS, tags);
+        if (changed) await this._writeTags(tags);
         log("Audio Tagger | Tags reordered");
     }
 
@@ -480,16 +536,7 @@ export class TagManager {
     /* -------------------------------------------- */
 
     static async resetToDefaults() {
-        await game.settings.set(MODULE_ID, SETTING_TAGS, {});
-        log("Audio Tagger | Cleared all tags, creating defaults...");
-
-        // Check if icons should be shown on default tags
-        const showIcons = game.settings.get(MODULE_ID, SETTING_DEFAULT_TAG_ICONS);
-
-        for (const tagData of this.DEFAULT_TAGS) {
-            const data = showIcons ? tagData : { ...tagData, icon: "" };
-            await this.createTag(data);
-        }
+        await this._enqueue(() => this._createDefaults());
 
         const msg = `Audio Tagger: Reset to ${this.DEFAULT_TAGS.length} default tags`;
         log(msg);
@@ -514,24 +561,29 @@ export class TagManager {
 
             if (Object.keys(tags).length > 0) return;
 
-            log("Audio Tagger | Initializing default tags...");
-            for (const tagData of this.DEFAULT_TAGS) {
-                await this.createTag(tagData);
-            }
+            await this._enqueue(async () => {
+                if (!Object.keys(this.getTags()).length) await this._createDefaults();
+            });
             log(`Audio Tagger | Created ${this.DEFAULT_TAGS.length} default tags`);
         } catch (error) {
             console.error("Audio Tagger | Error during initialization:", error);
-            // Fallback: clear and recreate
-            try {
-                await game.settings.set(MODULE_ID, SETTING_TAGS, {});
-                this._invalidateCache();
-                for (const tagData of this.DEFAULT_TAGS) {
-                    await this.createTag(tagData);
-                }
-            } catch (fallbackError) {
-                console.error("Audio Tagger | Fallback initialization failed:", fallbackError);
-            }
+            // A transient write failure must never erase an existing world.
+            ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
         }
+    }
+
+    static async _createDefaults() {
+        const showIcons = game.settings.get(MODULE_ID, SETTING_DEFAULT_TAG_ICONS);
+        const now = Date.now();
+        const tags = {};
+        for (const [order, data] of this.DEFAULT_TAGS.entries()) {
+            const uuid = `Tag.${foundry.utils.randomID()}`;
+            tags[uuid] = { ...data, uuid, icon: showIcons ? data.icon : "",
+                isFolder: false, order, createdAt: now, updatedAt: now };
+        }
+        await this._writeTags(tags);
+        await this.setTagHierarchy({});
+        for (const tag of Object.values(tags)) Hooks.callAll("audioTaggerTagCreated", tag);
     }
 
     static _needsMigration(tags) {
@@ -564,6 +616,7 @@ export class TagManager {
                 uuid,
                 name: tag.name || tag.text || "Unnamed",
                 icon: tag.icon || "",
+                isFolder: Boolean(tag.isFolder),
                 backgroundColor: tag.backgroundColor || tag.bg || "#6c757d",
                 textColor: tag.textColor || tag.color || "#ffffff",
                 order: tag.order ?? index,
@@ -572,7 +625,7 @@ export class TagManager {
             };
         });
 
-        await game.settings.set(MODULE_ID, SETTING_TAGS, newTags);
+        await this._writeTags(newTags);
         log(`Audio Tagger | Migrated ${Object.keys(newTags).length} tags`);
     }
 
@@ -610,7 +663,7 @@ export class TagManager {
      */
     static getTagHierarchy() {
         try {
-            return game.settings.get(MODULE_ID, SETTING_TAG_HIERARCHY) || {};
+            return normalizeHierarchy(game.settings.get(MODULE_ID, SETTING_TAG_HIERARCHY), this.getTags());
         } catch (e) {
             return {};
         }
@@ -621,7 +674,11 @@ export class TagManager {
      * @param {Object} hierarchy - Map of childUuid -> parentUuid
      */
     static async setTagHierarchy(hierarchy) {
+        hierarchy = normalizeHierarchy(hierarchy, this.getTags());
+        const current = game.settings.get(MODULE_ID, SETTING_TAG_HIERARCHY) || {};
+        if (sameHierarchy(current, hierarchy)) return;
         await game.settings.set(MODULE_ID, SETTING_TAG_HIERARCHY, hierarchy);
+        this.requestRender();
         log("Audio Tagger | Tag hierarchy updated");
     }
 
@@ -648,10 +705,7 @@ export class TagManager {
      * @returns {string[]} Array of child tag UUIDs
      */
     static getTagChildren(parentUuid) {
-        const hierarchy = this.getTagHierarchy();
-        return Object.entries(hierarchy)
-            .filter(([_, parent]) => parent === parentUuid)
-            .map(([child, _]) => child);
+        return childrenOf(parentUuid, this.getTagHierarchy(), this.getTags()).map(tag => tag.uuid);
     }
 
     /**
@@ -661,5 +715,49 @@ export class TagManager {
      */
     static getTagParent(childUuid) {
         return this.getTagHierarchy()[childUuid] || null;
+    }
+
+    /** Save one completed drag; never read a live DOM after an await. */
+    static saveLayout({ hierarchy, groups }, expectedRevision) {
+        return this._enqueue(async () => {
+            if (expectedRevision !== undefined && expectedRevision !== this.revision) {
+                throw new Error("Tag layout changed during drag. Please try again.");
+            }
+            const tags = foundry.utils.deepClone(this.getTags());
+            let changed = false;
+            for (const [parent, uuids] of Object.entries(groups)) {
+                const field = parent ? "siblingOrder" : "order";
+                uuids.forEach((uuid, index) => {
+                    if (!tags[uuid] || tags[uuid][field] === index) return;
+                    tags[uuid][field] = index;
+                    changed = true;
+                });
+            }
+            // World settings are separate documents, not an atomic transaction.
+            // Render from their actual values on failure rather than keep a
+            // visual layout that was never saved.
+            if (changed) await this._writeTags(tags);
+            await this.setTagHierarchy(hierarchy);
+        });
+    }
+
+    static async _releaseChildren(uuid, tags, remove = false) {
+        const hierarchy = this.getTagHierarchy();
+        const parent = hierarchy[uuid];
+        const children = childrenOf(uuid, hierarchy, tags);
+        const siblings = parent
+            ? childrenOf(parent, hierarchy, tags)
+            : this.getSortedTags("order").filter(tag => !hierarchy[tag.uuid]);
+        const position = siblings.findIndex(tag => tag.uuid === uuid);
+        if (position >= 0) siblings.splice(position + 1, 0, ...children);
+        for (const child of children) {
+            if (parent) hierarchy[child.uuid] = parent;
+            else delete hierarchy[child.uuid];
+        }
+        if (remove) delete hierarchy[uuid];
+        siblings.filter(tag => !remove || tag.uuid !== uuid).forEach((tag, index) => {
+            tags[tag.uuid][parent ? "siblingOrder" : "order"] = index;
+        });
+        await this.setTagHierarchy(hierarchy);
     }
 }

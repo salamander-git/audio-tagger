@@ -1,2 +1,13 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep development files in Git, but omit them from source archives.
+/tests export-ignore
+/tools export-ignore
+/node_modules export-ignore
+/dist export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore

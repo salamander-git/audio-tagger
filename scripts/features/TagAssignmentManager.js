@@ -9,6 +9,7 @@ export class TagAssignmentManager {
     // Tag index: tagUuid -> Set<documentUuid>
     static _tagIndex = new Map();
     static _indexBuilt = false;
+    static _emptyAssignments = Object.freeze([]);
 
     /**
      * Rebuild the tag index by scanning all playlists and sounds.
@@ -66,77 +67,86 @@ export class TagAssignmentManager {
      * @param {string} tagUuid - Tag UUID
      * @returns {Promise<Document|void>}
      */
-    static async assignTag(document, tagUuid) {
-        if (!document || !tagUuid) return;
+    static _documentWrites = new Map();
+    static revision = 0;
 
-        const tag = TagManager.getTag(tagUuid);
-        if (!tag) {
-            console.warn(`Audio Tagger | Tag ${tagUuid} not found`);
-            return;
+    static invalidateIndex() {
+        this._indexBuilt = false;
+        this.revision++;
+    }
+
+    static _enqueueDocument(document, operation) {
+        const previous = this._documentWrites.get(document.uuid) || Promise.resolve();
+        const result = previous.catch(() => {}).then(operation);
+        this._documentWrites.set(document.uuid, result);
+        const cleanup = () => {
+            if (this._documentWrites.get(document.uuid) === result) this._documentWrites.delete(document.uuid);
+        };
+        result.then(cleanup, cleanup);
+        return result;
+    }
+
+    static _snapshot(tag) {
+        return { name: tag.name, icon: tag.icon || "", isFolder: Boolean(tag.isFolder),
+            backgroundColor: tag.backgroundColor, textColor: tag.textColor };
+    }
+
+    static async _writeAssignments(document, assignments) {
+        const current = this.getAssignedTags(document);
+        const search = assignments.map(a => (TagManager.getTag(a.uuid)?.name || a.snapshot?.name || "").toLowerCase())
+            .filter(Boolean).join(" ");
+        const changes = {};
+        const prefix = "flags." + MODULE_ID + ".";
+        if (JSON.stringify(current) !== JSON.stringify(assignments)) {
+            changes[prefix + (assignments.length ? FLAG_TAGS : "-=" + FLAG_TAGS)] = assignments.length ? assignments : null;
         }
-
-        const assignments = this.getAssignedTags(document);
-        if (assignments.some(a => a.uuid === tagUuid)) {
-            if (TagManager.areNotificationsEnabled()) {
-                ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.TagAlreadyAssigned"));
-            }
-            return document;
+        if (document.getFlag(MODULE_ID, FLAG_SEARCH) !== (search || undefined)) {
+            changes[prefix + (search ? FLAG_SEARCH : "-=" + FLAG_SEARCH)] = search || null;
         }
-
-        const newAssignments = [
-            ...assignments,
-            {
-                uuid: tagUuid,
-                assignedAt: Date.now(),
-                snapshot: {
-                    name: tag.name,
-                    backgroundColor: tag.backgroundColor,
-                    textColor: tag.textColor
-                }
-            }
-        ];
-
-        await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
-        await this.updateSearchFlag(document);
-
-        // Update index
-        this._addToIndex(tagUuid, document.uuid);
-
-        Hooks.callAll("audioTaggerTagAssigned", document, tag);
+        if (Object.keys(changes).length) {
+            await document.update(changes);
+            this.invalidateIndex();
+            TagManager.requestRender();
+        }
         return document;
     }
 
-    /**
-     * Unassign a tag from a document.
-     * @param {Document} document - Playlist or PlaylistSound
-     * @param {string} tagUuid - Tag UUID
-     * @param {boolean} [skipRender=false] - Skip UI refresh
-     * @returns {Promise<Document>}
-     */
+    /** Merge only the user's changes into the latest flags. */
+    static applySelection(document, selected, baseline, { emitRemoved = true } = {}) {
+        const desired = new Set(selected);
+        const initial = new Set(baseline);
+        return this._enqueueDocument(document, async () => {
+            const current = this.getAssignedTags(document);
+            const remove = new Set([...initial].filter(uuid => !desired.has(uuid)));
+            const next = current.filter(a => !remove.has(a.uuid));
+            const added = [];
+            for (const uuid of desired) {
+                if (initial.has(uuid) || next.some(a => a.uuid === uuid)) continue;
+                const tag = TagManager.getTag(uuid);
+                if (!tag) continue;
+                next.push({ uuid, assignedAt: Date.now(), snapshot: this._snapshot(tag) });
+                added.push(tag);
+            }
+            await this._writeAssignments(document, next);
+            if (emitRemoved) for (const assignment of current) {
+                if (remove.has(assignment.uuid)) Hooks.callAll("audioTaggerTagUnassigned", document, assignment.uuid);
+            }
+            for (const tag of added) Hooks.callAll("audioTaggerTagAssigned", document, tag);
+            return document;
+        });
+    }
+
+    static async assignTag(document, tagUuid) {
+        if (!document || !tagUuid || !TagManager.getTag(tagUuid)) return;
+        if (this.getAssignedTags(document).some(a => a.uuid === tagUuid) && TagManager.areNotificationsEnabled()) {
+            ui.notifications.warn(game.i18n.localize("AUDIO_TAGGER.TagAlreadyAssigned"));
+        }
+        return this.applySelection(document, [tagUuid], []);
+    }
+
     static async unassignTag(document, tagUuid, skipRender = false) {
         if (!document || !tagUuid) return document;
-
-        const assignments = this.getAssignedTags(document);
-        const newAssignments = assignments.filter(a => a.uuid !== tagUuid);
-
-        if (assignments.length === newAssignments.length) return document;
-
-        if (newAssignments.length > 0) {
-            await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
-        } else {
-            await document.unsetFlag(MODULE_ID, FLAG_TAGS);
-        }
-
-        await this.updateSearchFlag(document);
-
-        // Update index
-        this._removeFromIndex(tagUuid, document.uuid);
-
-        if (!skipRender) {
-            Hooks.callAll("audioTaggerTagUnassigned", document, tagUuid);
-        }
-
-        return document;
+        return this.applySelection(document, [], [tagUuid], { emitRemoved: !skipRender });
     }
 
     /**
@@ -145,8 +155,8 @@ export class TagAssignmentManager {
      * @returns {Array}
      */
     static getAssignedTags(document) {
-        if (!document) return [];
-        return document.getFlag(MODULE_ID, FLAG_TAGS) || [];
+        if (!document) return this._emptyAssignments;
+        return document.getFlag(MODULE_ID, FLAG_TAGS) || this._emptyAssignments;
     }
 
     /**
@@ -179,53 +189,22 @@ export class TagAssignmentManager {
      * Stores normalized lowercase tag names as space-separated string.
      * @param {Document} document
      */
-    static async updateSearchFlag(document) {
-        const assignments = this.getAssignedTags(document);
-
-        if (assignments.length === 0) {
-            const current = document.getFlag(MODULE_ID, FLAG_SEARCH);
-            if (current) {
-                await document.unsetFlag(MODULE_ID, FLAG_SEARCH);
-            }
-            return;
-        }
-
-        const searchString = assignments
-            .map(a => {
-                const tag = TagManager.getTag(a.uuid);
-                return (tag?.name || a.snapshot?.name || "").toLowerCase();
-            })
-            .filter(Boolean)
-            .join(" ");
-
-        await document.setFlag(MODULE_ID, FLAG_SEARCH, searchString);
+    static updateSearchFlag(document) {
+        return this._enqueueDocument(document, () => this._writeAssignments(document, this.getAssignedTags(document)));
     }
 
-    /**
-     * Sync tag snapshots when a tag is updated.
-     * @param {string} tagUuid
-     */
     static async syncTagSnapshots(tagUuid) {
-        const tag = TagManager.getTag(tagUuid);
-        if (!tag) return;
-
-        const snapshot = {
-            name: tag.name,
-            backgroundColor: tag.backgroundColor,
-            textColor: tag.textColor
-        };
-
         const documents = this.getDocumentsWithTag(tagUuid);
-
         for (const doc of documents) {
-            const assignments = this.getAssignedTags(doc);
-            const idx = assignments.findIndex(a => a.uuid === tagUuid);
-
-            if (idx !== -1) {
-                assignments[idx].snapshot = snapshot;
-                await doc.setFlag(MODULE_ID, FLAG_TAGS, assignments);
-                await this.updateSearchFlag(doc);
-            }
+            await this._enqueueDocument(doc, async () => {
+                const tag = TagManager.getTag(tagUuid);
+                if (!tag) return;
+                const assignments = foundry.utils.deepClone(this.getAssignedTags(doc));
+                for (const assignment of assignments) {
+                    if (assignment.uuid === tagUuid) assignment.snapshot = this._snapshot(tag);
+                }
+                await this._writeAssignments(doc, assignments);
+            });
         }
     }
 
@@ -233,15 +212,20 @@ export class TagAssignmentManager {
      * Recover tags from imported documents.
      * @param {Document} document
      */
-    static async recoverTags(document) {
+    static recoverTags(document) {
+        this.invalidateIndex();
+        return this._enqueueDocument(document, () => this._recoverTags(document));
+    }
+
+    static async _recoverTags(document) {
         const assignments = this.getAssignedTags(document);
         if (assignments.length === 0) return;
 
-        const allTags = TagManager.getTags();
         let changed = false;
         const newAssignments = [];
 
         for (const assignment of assignments) {
+            const allTags = TagManager.getTags();
             if (allTags[assignment.uuid]) {
                 newAssignments.push(assignment);
                 continue;
@@ -262,23 +246,21 @@ export class TagAssignmentManager {
                 newAssignments.push({
                     uuid: existingTag.uuid,
                     assignedAt: assignment.assignedAt,
-                    snapshot: {
-                        name: existingTag.name,
-                        backgroundColor: existingTag.backgroundColor,
-                        textColor: existingTag.textColor
-                    }
+                    snapshot: this._snapshot(existingTag)
                 });
                 changed = true;
             } else {
                 log(`Audio Tagger | Importing new tag '${snapshot.name}'`);
                 try {
-                    const newTag = await TagManager.createTag({
+                    await TagManager.createTag({
                         uuid: assignment.uuid,
                         name: snapshot.name,
+                        icon: snapshot.icon,
+                        isFolder: snapshot.isFolder,
                         backgroundColor: snapshot.backgroundColor,
                         textColor: snapshot.textColor
                     });
-                    allTags[newTag.uuid] = newTag;
+                    changed = true;
                     newAssignments.push(assignment);
                 } catch (error) {
                     console.error(`Audio Tagger | Failed to import tag '${snapshot.name}':`, error);
@@ -289,8 +271,8 @@ export class TagAssignmentManager {
         }
 
         if (changed) {
-            await document.setFlag(MODULE_ID, FLAG_TAGS, newAssignments);
-            await this.updateSearchFlag(document);
+            const unique = [...new Map(newAssignments.map(a => [a.uuid, a])).values()];
+            await this._writeAssignments(document, unique);
         }
     }
 }

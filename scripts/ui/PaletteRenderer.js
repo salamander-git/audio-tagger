@@ -3,35 +3,65 @@ import { TagEditorDialog } from "./TagEditorDialog.js";
 import { TagAssignmentManager } from "../features/TagAssignmentManager.js";
 import { TagWizard } from "../features/TagWizard.js";
 import { AudioPlaybackManager } from "../features/AudioPlaybackManager.js";
+import Sortable from "../vendor/sortable.complete.esm.js";
 import { toElement } from "../core/constants.js";
 
 /**
  * Handles rendering and interaction for the Tag Palette UI.
- * Uses static methods to avoid unnecessary object creation on each render.
+ * Each directory application owns its DOM, Sortables and drag lifecycle.
  */
 export class PaletteRenderer {
-    // Static state - persists across renders
-    static _currentSortMode = null; // Will be loaded from settings
-    static _elements = null;
-    static _containerSizes = new Map(); // For anti-shift mechanism
+    static instances = new Map();
+
+    static render(html, app = html) {
+        let view = this.instances.get(app);
+        if (!view) {
+            view = new PaletteRenderer();
+            this.instances.set(app, view);
+        }
+        view._render(html);
+    }
+
+    static close(app) {
+        const view = this.instances.get(app);
+        view?.destroy();
+        this.instances.delete(app);
+    }
+
+    // View state persists across Foundry's partial renders.
+    _currentSortMode = null; // Will be loaded from settings
+    _elements = null;
+    _containerSizes = new Map(); // For anti-shift mechanism
     static _activePlaybackMode = null; // Set by keybindings: "first", "last", "random"
-    static _isSaving = false; // Flag to prevent re-renders during drag-drop save
-    static _dragContext = null; // Spatial zone tracking during drag
-    static _onDragMouseMove = null; // Mouse move handler reference
+    _isSaving = false; // Flag to prevent re-renders during drag-drop save
+    _dragContext = null; // Spatial zone tracking during drag
+    _sortables = new Set();
+    _pendingRender = null;
+    _destroying = false;
+    _dragController = null;
+    _renderedRevision = -1;
 
     /**
      * Render the palette into the Playlist Directory.
      * Called from renderPlaylistDirectory hook.
      * @param {HTMLElement} html - The playlist directory element
      */
-    static render(html) {
+    _render(html) {
         // Only GMs can see the palette
         if (!game.user.isGM) return;
 
-        // Skip re-render if currently saving drag-drop changes
-        if (this._isSaving) return;
-
         const element = toElement(html);
+        // Foundry owns the directory DOM. Never cancel its renders. If it
+        // replaced the palette, cancel our drag and initialize the new DOM.
+        if ((this._isSaving || this._dragContext) && this._elements?.palette?.isConnected
+            && element.contains(this._elements.palette)) {
+            this._pendingRender = element;
+            return;
+        }
+        if (this._elements?.palette?.isConnected && element.contains(this._elements.palette)
+            && this._renderedRevision === TagManager.revision
+            && this._currentSortMode === TagManager.getSortMode()) return;
+        this._destroySortables();
 
         // Remove existing palette to prevent duplication
         const existing = element.querySelector("#audio-tagger-palette");
@@ -61,24 +91,22 @@ export class PaletteRenderer {
             refreshBtn: element.querySelector("#at-rest-btn")
         };
 
-        // Load sort mode from settings if not already loaded
-        if (!this._currentSortMode) {
-            this._currentSortMode = TagManager.getSortMode();
-        }
+        // Sort mode is shared by this client's directory views.
+        this._currentSortMode = TagManager.getSortMode();
 
-        this._renderTags();
+        this._renderTags(true);
         this._attachListeners();
-        this._initSortable();
         this._updateSortIcon(); // Sync icon with current mode
+        this._renderedRevision = TagManager.revision;
 
-        TagWizard.init(element);
+
     }
 
     /**
      * Update the sort button icon to reflect current mode.
      * @private
      */
-    static _updateSortIcon() {
+    _updateSortIcon() {
         const icons = {
             "order": "fa-grip-vertical",
             "name-asc": "fa-sort-alpha-down",
@@ -96,17 +124,14 @@ export class PaletteRenderer {
      * Initialize SortableJS for drag-and-drop tag reordering.
      * @private
      */
-    static _initSortable() {
+    _initSortable() {
         // Only GMs can reorder tags
         if (!game.user.isGM) return;
 
         const list = this._elements.list;
         if (!list || typeof Sortable === "undefined") return;
 
-        // Destroy existing instances
-        if (list._sortable) {
-            list._sortable.destroy();
-        }
+        this._destroySortables();
 
         // Initialize main list sortable
         this._createSortable(list, true);
@@ -123,21 +148,35 @@ export class PaletteRenderer {
      * @param {boolean} isRoot - Whether this is the root list
      * @private
      */
-    static _createSortable(container, isRoot) {
+    _createSortable(container, isRoot) {
         const config = {
             animation: 150,
             fallbackOnBody: true,
-            group: "at-tags", // Allow dragging between groups
-            ghostClass: "sortable-ghost",
+            forceFallback: true, // Keep tag drags out of Foundry's native document DnD.
+            fallbackTolerance: 4,
+            group: {
+                name: "audio-tagger-tags",
+                // A sidebar and its popout have separate, equivalent views.
+                // Do not physically move their DOM elements between views.
+                put: (to, from, item) => this._elements.list.contains(from.el)
+                    && !item.contains(to.el)
+            },
+            draggable: ".audio-tagger-item",
+            filter: ".audio-tagger-btn",
+            preventOnFilter: false,
+            ghostClass: "audio-tagger-ghost",
             chosenClass: "audio-tagger-chosen",
-            dragClass: "sortable-drag",
-            invertswapThreshold: 1,
+            dragClass: "audio-tagger-drag",
+            fallbackClass: "audio-tagger-fallback",
+            invertedSwapThreshold: 1,
             invertSwap: true,
+            disabled: this._isSaving,
+            // Avoid native Foundry document drag data.
+            setData: dataTransfer => dataTransfer.setData("application/x-audio-tagger", "tag"),
 
             onStart: (evt) => {
                 const list = this._elements.list;
                 list.classList.add("is-dragging");
-                document.body.classList.add("dragging");
 
                 // Anti-shift mechanism: freeze container sizes
                 this._toggleContainerSizes(true);
@@ -147,60 +186,71 @@ export class PaletteRenderer {
                     item: evt.item,
                     fromFolder: evt.from.closest(".at-folder"),
                     originalParent: evt.from,
-                    lastMousePos: { x: 0, y: 0 }
+                    lastMousePos: null,
+                    before: this._readLayout(),
+                    revision: TagManager.revision
                 };
 
-                // Set up mouse tracking for spatial zone detection
-                this._onDragMouseMove = (e) => this._trackDragPosition(e);
-                document.addEventListener("mousemove", this._onDragMouseMove);
+                const ownerDocument = list.ownerDocument;
+                this._dragController = new ownerDocument.defaultView.AbortController();
+                for (const type of ["dragover", "pointermove", "mousemove", "touchmove"]) {
+                    ownerDocument.addEventListener(type, e => this._trackDragPosition(e),
+                        { capture: true, passive: true, signal: this._dragController.signal });
+                }
+                ownerDocument.addEventListener("keydown", e => {
+                    if (e.key !== "Escape") return;
+                    e.stopPropagation();
+                    this._cancelDrag();
+                }, { capture: true, signal: this._dragController.signal });
+                ownerDocument.addEventListener("pointercancel", () => this._cancelDrag(),
+                    { capture: true, signal: this._dragController.signal });
             },
 
             onEnd: async (evt) => {
-                const list = this._elements.list;
-                list.classList.remove("is-dragging");
-                document.body.classList.remove("dragging");
-
-                // Clean up mouse tracking
-                if (this._onDragMouseMove) {
-                    document.removeEventListener("mousemove", this._onDragMouseMove);
-                    this._onDragMouseMove = null;
-                }
-
-                // Apply spatial zone positioning if applicable
-                const spatialResult = this._applySpatialZonePosition(evt);
-
-                // Keep element in place visually during save
-                // Set flag to prevent re-renders from disrupting position
-                this._isSaving = true;
-
+                if (this._destroying || !this._dragContext) return;
+                const context = this._dragContext;
                 try {
-                    // Update hierarchy based on new DOM structure
-                    await this._saveHierarchyFromDOM();
-
-                    // Reorder tags at root level
-                    const uuids = Array.from(list.querySelectorAll(":scope > .audio-tagger-item"))
-                        .map(el => el.dataset.uuid);
-                    await TagManager.reorderTags(uuids);
+                    if (evt.originalEvent?.type === "touchcancel") {
+                        this._renderedRevision = -1;
+                        return;
+                    }
+                    this._trackDragPosition(evt.originalEvent);
+                    this._applySpatialZonePosition(evt);
+                    const after = this._readLayout();
+                    if (JSON.stringify(context.before) === JSON.stringify(after)) return;
+                    this._isSaving = true;
+                    this._sortables.forEach(sortable => sortable.option("disabled", true));
+                    await TagManager.saveLayout(after, context.revision);
+                } catch (error) {
+                    console.error("Audio Tagger | Could not save tag layout", error);
+                    ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
+                    this._renderedRevision = -1;
                 } finally {
                     this._isSaving = false;
-                    // Reset frozen sizes only after save completes
-                    this._toggleContainerSizes(false);
-                    // Clear drag context
-                    this._dragContext = null;
+                    this._cleanupDrag();
+                    this._sortables.forEach(sortable => sortable.option("disabled", false));
+                    const pending = this._pendingRender;
+                    this._pendingRender = null;
+                    const html = pending || this._elements?.html;
+                    // Sortable's onEnd callback isn't awaited by the library.
+                    // Let it finish its own drop cleanup before replacing DOM.
+                    queueMicrotask(() => {
+                        if (this._elements && html?.isConnected) this._render(html);
+                    });
                 }
             }
         };
 
-        if (isRoot) {
-            // Root list: robust folder protection logic
-            config.onMove = (evt) => {
+        config.onMove = (evt, originalEvent) => {
+                this._trackDragPosition(originalEvent);
+                if (evt.dragged.contains(evt.to)) return false;
                 const related = evt.related;
                 // If moving over a folder
                 if (related && related.classList.contains("at-folder")) {
                     const header = related.querySelector(".at-item-content");
                     if (header) {
                         const headerRect = header.getBoundingClientRect();
-                        const mouseY = evt.originalEvent?.clientY || 0;
+                        const mouseY = this._dragContext?.lastMousePos?.y;
 
                         // If mouse is below the header, we are targeting the children area.
                         // Prevent the folder swap to allow nested sortable to handle insertion.
@@ -210,13 +260,46 @@ export class PaletteRenderer {
                     }
                 }
                 return true;
-            };
-        } else {
+        };
+        if (!isRoot) {
             // Folder children: easier empty insertion
             config.emptyInsertThreshold = 8;
         }
 
-        container._sortable = Sortable.create(container, config);
+        this._sortables.add(Sortable.create(container, config));
+    }
+
+    _cleanupDrag() {
+        this._dragController?.abort();
+        this._dragController = null;
+        this._elements?.list?.classList.remove("is-dragging");
+        this._toggleContainerSizes(false);
+        this._dragContext = null;
+    }
+
+    _cancelDrag() {
+        const html = this._elements?.html;
+        this._destroySortables();
+        this._renderedRevision = -1;
+        if (html?.isConnected) this._render(html);
+    }
+
+    _destroySortables() {
+        this._destroying = true;
+        try {
+            this._cleanupDrag();
+            for (const sortable of this._sortables) sortable.destroy();
+            this._sortables.clear();
+        } finally {
+            this._destroying = false;
+        }
+    }
+
+    destroy() {
+        this._destroySortables();
+        this._elements?.palette?.remove();
+        this._elements = null;
+        this._pendingRender = null;
     }
 
     /**
@@ -224,13 +307,12 @@ export class PaletteRenderer {
      * @param {boolean} freeze - Whether to freeze (true) or unfreeze (false)
      * @private
      */
-    static _toggleContainerSizes(freeze) {
-        const containers = [this._elements.list, ...this._elements.list.querySelectorAll(".at-folder-children")];
-
+    _toggleContainerSizes(freeze) {
         if (freeze) {
+            const containers = [this._elements.list, ...this._elements.list.querySelectorAll(".at-folder-children")];
+            const measurements = containers.map(container => ({ container, rect: container.getBoundingClientRect() }));
             this._containerSizes.clear();
-            containers.forEach(container => {
-                const rect = container.getBoundingClientRect();
+            measurements.forEach(({ container, rect }) => {
                 this._containerSizes.set(container, {
                     minWidth: container.style.minWidth,
                     minHeight: container.style.minHeight
@@ -252,9 +334,13 @@ export class PaletteRenderer {
      * @param {MouseEvent} e - Mouse event
      * @private
      */
-    static _trackDragPosition(e) {
-        if (!this._dragContext) return;
-        this._dragContext.lastMousePos = { x: e.clientX, y: e.clientY };
+    _trackDragPosition(e) {
+        if (!this._dragContext || !e) return;
+        const pointer = e.touches?.[0] || e.changedTouches?.[0] || e;
+        if (!Number.isFinite(pointer.clientX) || !Number.isFinite(pointer.clientY)) return;
+        // Some native dragend events report a synthetic (0,0).
+        if (e.type === "dragend" && !pointer.clientX && !pointer.clientY) return;
+        this._dragContext.lastMousePos = { x: pointer.clientX, y: pointer.clientY };
     }
 
     /**
@@ -265,13 +351,14 @@ export class PaletteRenderer {
      * @returns {Object|null} - Repositioning result or null if not applicable
      * @private
      */
-    static _applySpatialZonePosition(evt) {
+    _applySpatialZonePosition(evt) {
         const ctx = this._dragContext;
         if (!ctx || !ctx.fromFolder) return null;
 
         const draggedItem = evt.item;
         const parentFolder = ctx.fromFolder;
         const mousePos = ctx.lastMousePos;
+        if (!mousePos) return null;
 
         // Check if the item was dropped to the root level (outside folder)
         const currentParent = draggedItem.parentElement;
@@ -291,7 +378,8 @@ export class PaletteRenderer {
         const list = this._elements.list;
 
         // Find position of parent folder in root list
-        const rootItems = Array.from(list.querySelectorAll(":scope > .audio-tagger-item"));
+        const rootItems = Array.from(list.querySelectorAll(":scope > .audio-tagger-item"))
+            .filter(item => item !== draggedItem);
         const folderIndex = rootItems.indexOf(parentFolder);
 
         if (folderIndex === -1) return null;
@@ -322,14 +410,6 @@ export class PaletteRenderer {
             );
         }
 
-        // Move the element to the calculated position
-        const currentIndex = rootItems.indexOf(draggedItem);
-
-        // Adjust target if dragged item is before target (it will shift)
-        if (currentIndex !== -1 && currentIndex < targetPosition) {
-            targetPosition--;
-        }
-
         // Perform the DOM move
         if (targetPosition >= rootItems.length) {
             list.appendChild(draggedItem);
@@ -350,9 +430,8 @@ export class PaletteRenderer {
      * @returns {string|null} - "left", "right", "top", "bottom", or null
      * @private
      */
-    static _determineSpatialZone(mousePos, folderRect) {
+    _determineSpatialZone(mousePos, folderRect) {
         const { x, y } = mousePos;
-        const margin = 20; // Zone detection margin in pixels
 
         // Check if mouse is inside the folder (no spatial zone applies)
         if (x >= folderRect.left && x <= folderRect.right &&
@@ -390,33 +469,21 @@ export class PaletteRenderer {
      * @returns {number} - Target index for insertion
      * @private
      */
-    static _findBestHorizontalPosition(mouseX, rootItems, baseIndex, direction, parentFolder) {
-        // Get the row of items at the base index position
-        // Find items that are in approximately the same vertical position
+    _findBestHorizontalPosition(mouseX, rootItems, baseIndex, direction, parentFolder) {
+        const folderIndex = rootItems.indexOf(parentFolder);
+        const neighborIndex = direction === "before" ? folderIndex - 1 : folderIndex + 1;
+        const neighbor = rootItems[neighborIndex];
+        if (!neighbor || neighbor.classList.contains("at-folder")) return baseIndex;
+        const rowTop = neighbor.getBoundingClientRect().top;
         const targetItems = [];
-        let rowTop = null;
-
-        for (let i = 0; i < rootItems.length; i++) {
-            if (rootItems[i] === parentFolder) continue; // Skip the parent folder
-
-            const rect = rootItems[i].getBoundingClientRect();
-
-            if (rowTop === null) {
-                // First item sets the row baseline
-                rowTop = rect.top;
-                targetItems.push({ item: rootItems[i], rect, index: i });
-            } else if (Math.abs(rect.top - rowTop) < 20) {
-                // Same row (within 20px tolerance)
-                targetItems.push({ item: rootItems[i], rect, index: i });
-            } else if (rect.top > rowTop + 20) {
-                // Next row - stop if we're looking for "before" items
-                if (direction === "before") break;
-                // Reset for new row
-                rowTop = rect.top;
-                targetItems.length = 0;
-                targetItems.push({ item: rootItems[i], rect, index: i });
-            }
+        const step = direction === "before" ? -1 : 1;
+        for (let i = neighborIndex; i >= 0 && i < rootItems.length; i += step) {
+            const item = rootItems[i];
+            const rect = item.getBoundingClientRect();
+            if (item.classList.contains("at-folder") || Math.abs(rect.top - rowTop) >= 20) break;
+            targetItems.push({ item, rect, index: i });
         }
+        targetItems.sort((a, b) => a.index - b.index);
 
         if (targetItems.length === 0) return baseIndex;
 
@@ -449,7 +516,6 @@ export class PaletteRenderer {
         }
 
         // Ensure we respect the direction constraint
-        const folderIndex = rootItems.indexOf(parentFolder);
         if (direction === "before" && bestIndex > folderIndex) {
             bestIndex = folderIndex;
         } else if (direction === "after" && bestIndex <= folderIndex) {
@@ -463,22 +529,18 @@ export class PaletteRenderer {
      * Save the current DOM hierarchy to settings.
      * @private
      */
-    static async _saveHierarchyFromDOM() {
+    _readLayout() {
         const hierarchy = {};
+        const groups = {};
         const list = this._elements.list;
-
-        // Find all folder containers and their children
-        list.querySelectorAll(".at-folder-children").forEach(container => {
-            const parentItem = container.closest(".audio-tagger-item.at-folder");
-            if (!parentItem) return;
-
-            const parentUuid = parentItem.dataset.uuid;
-            container.querySelectorAll(":scope > .audio-tagger-item").forEach(child => {
-                hierarchy[child.dataset.uuid] = parentUuid;
-            });
-        });
-
-        await TagManager.setTagHierarchy(hierarchy);
+        for (const container of [list, ...list.querySelectorAll(".at-folder-children")]) {
+            const parent = container === list ? "" : container.closest(".at-folder").dataset.uuid;
+            groups[parent] = Array.from(container.children)
+                .filter(child => child.classList.contains("audio-tagger-item"))
+                .map(child => child.dataset.uuid);
+            if (parent) for (const uuid of groups[parent]) hierarchy[uuid] = parent;
+        }
+        return { hierarchy, groups };
     }
 
     /**
@@ -486,7 +548,7 @@ export class PaletteRenderer {
      * @returns {string}
      * @private
      */
-    static _buildPaletteHTML() {
+    _buildPaletteHTML() {
         const isCollapsed = TagManager.isCollapsed();
         const tags = TagManager.getSortedTags();
 
@@ -530,7 +592,13 @@ export class PaletteRenderer {
      * Supports hierarchical folder structure.
      * @private
      */
-    static _renderTags() {
+    _renderTags(force = false) {
+        if (!this._elements) return;
+        if (!force && (this._isSaving || this._dragContext)) {
+            this._pendingRender = this._elements.html;
+            this._renderedRevision = -1;
+            return;
+        }
         const { list, counter } = this._elements;
         if (!list) return;
 
@@ -541,8 +609,19 @@ export class PaletteRenderer {
         // Find root-level tags (not inside any folder)
         const rootTags = allTags.filter(tag => !hierarchy[tag.uuid]);
 
+        this._destroySortables();
+        this._childrenByParent = new Map();
+        for (const [child, parent] of Object.entries(hierarchy)) {
+            if (!this._childrenByParent.has(parent)) this._childrenByParent.set(parent, []);
+            const tag = tagsMap.get(child);
+            if (tag) this._childrenByParent.get(parent).push(tag);
+        }
+        for (const children of this._childrenByParent.values()) {
+            children.sort((a, b) => Number.isFinite(a.siblingOrder) && Number.isFinite(b.siblingOrder)
+                ? a.siblingOrder - b.siblingOrder : 0);
+        }
         list.innerHTML = "";
-        const fragment = document.createDocumentFragment();
+        const fragment = this._elements.html.ownerDocument.createDocumentFragment();
         const isGM = game.user.isGM;
 
         for (const tag of rootTags) {
@@ -552,6 +631,7 @@ export class PaletteRenderer {
 
         list.appendChild(fragment);
         if (counter) counter.textContent = allTags.length;
+        this._initSortable();
     }
 
     /**
@@ -563,8 +643,8 @@ export class PaletteRenderer {
      * @returns {HTMLElement}
      * @private
      */
-    static _createTagElement(tag, hierarchy, tagsMap, isGM) {
-        const tagEl = document.createElement("div");
+    _createTagElement(tag, hierarchy, tagsMap, isGM) {
+        const tagEl = this._elements.html.ownerDocument.createElement("div");
         tagEl.className = "audio-tagger-item";
         tagEl.dataset.uuid = tag.uuid;
         tagEl.dataset.tagName = tag.name;
@@ -577,11 +657,11 @@ export class PaletteRenderer {
         tagEl.style.color = tag.textColor;
 
         // Build content wrapper
-        const contentEl = document.createElement("div");
+        const contentEl = this._elements.html.ownerDocument.createElement("div");
         contentEl.className = "at-item-content";
         contentEl.innerHTML = `
             ${tag.isFolder ? `<span class="at-folder-icon"><i class="fas fa-folder"></i></span>` : ""}
-            ${tag.icon ? `<span class="at-tag-icon">${tag.icon}</span>` : ""}
+            ${tag.icon ? `<span class="at-tag-icon">${foundry.utils.escapeHTML(tag.icon)}</span>` : ""}
             <span class="at-tag-name">${foundry.utils.escapeHTML(tag.name)}</span>
             ${isGM ? `
             <div class="audio-tagger-btn edit-btn" data-action="editTag" title="${game.i18n.localize("AUDIO_TAGGER.EditTag")}">
@@ -596,14 +676,11 @@ export class PaletteRenderer {
 
         // If it's a folder, create children container and populate
         if (tag.isFolder) {
-            const childrenContainer = document.createElement("div");
+            const childrenContainer = this._elements.html.ownerDocument.createElement("div");
             childrenContainer.className = "at-folder-children";
 
             // Find children of this folder
-            const children = Object.entries(hierarchy)
-                .filter(([_, parentUuid]) => parentUuid === tag.uuid)
-                .map(([childUuid, _]) => tagsMap.get(childUuid))
-                .filter(Boolean);
+            const children = this._childrenByParent.get(tag.uuid) || [];
 
             for (const childTag of children) {
                 const childEl = this._createTagElement(childTag, hierarchy, tagsMap, isGM);
@@ -620,13 +697,14 @@ export class PaletteRenderer {
      * Cycle through sort modes and re-render tags.
      * @private
      */
-    static async _cycleSortMode() {
+    async _cycleSortMode() {
         const modes = ["order", "name-asc", "name-desc", "color-brightness-dark", "color-brightness"];
         const currentIndex = modes.indexOf(this._currentSortMode);
         this._currentSortMode = modes[(currentIndex + 1) % modes.length];
 
         // Save sort mode to settings
         await TagManager.setSortMode(this._currentSortMode);
+        TagManager.requestRender();
 
         this._updateSortIcon();
         this._renderTags();
@@ -647,8 +725,8 @@ export class PaletteRenderer {
      * Attach event listeners to the palette UI.
      * @private
      */
-    static _attachListeners() {
-        const { html, header, spoiler, toggleIcon, wizardBtn, addBtn, refreshBtn, sortBtn, list } = this._elements;
+    _attachListeners() {
+        const { header, spoiler, toggleIcon, wizardBtn, addBtn, refreshBtn, sortBtn, list } = this._elements;
 
         header.addEventListener("click", () => {
             const isCollapsed = spoiler.classList.toggle("collapsed");
@@ -665,12 +743,13 @@ export class PaletteRenderer {
 
             addBtn?.addEventListener("click", async (e) => {
                 e.stopPropagation();
-                const newTag = await TagEditorDialog.open();
-                if (newTag) this._renderTags();
+                await TagEditorDialog.open();
             });
 
             refreshBtn?.addEventListener("click", async (e) => {
                 e.stopPropagation();
+                if (refreshBtn.disabled) return;
+                refreshBtn.disabled = true;
                 refreshBtn.querySelector("i").classList.add("fa-spin");
 
                 try {
@@ -682,11 +761,15 @@ export class PaletteRenderer {
                         }
                     }
 
-                    this._renderTags();
+                    TagManager.requestRender();
                     if (TagManager.areNotificationsEnabled()) {
                         ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagsRefreshed"));
                     }
+                } catch (error) {
+                    console.error("Audio Tagger | Tag recovery failed", error);
+                    ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorSaving"));
                 } finally {
+                    refreshBtn.disabled = false;
                     refreshBtn.querySelector("i").classList.remove("fa-spin");
                 }
             });
@@ -711,8 +794,7 @@ export class PaletteRenderer {
 
                 if (editBtn) {
                     e.stopPropagation();
-                    const updated = await TagEditorDialog.open(tag);
-                    if (updated) this._renderTags();
+                    await TagEditorDialog.open(tag);
                     return;
                 } else if (deleteBtn) {
                     e.stopPropagation();
@@ -725,9 +807,14 @@ export class PaletteRenderer {
             e.stopPropagation();
 
             // Check if a playback hotkey is active
-            if (this._activePlaybackMode) {
+            if (PaletteRenderer._activePlaybackMode) {
                 // Trigger audio playback with the active mode
-                AudioPlaybackManager.playByMode(tag.uuid, this._activePlaybackMode);
+                try {
+                    await AudioPlaybackManager.playByMode(tag.uuid, PaletteRenderer._activePlaybackMode);
+                } catch (error) {
+                    console.error("Audio Tagger | Playback failed", error);
+                    ui.notifications.error(game.i18n.localize("AUDIO_TAGGER.ErrorPlayback"));
+                }
                 return;
             }
 
@@ -741,7 +828,7 @@ export class PaletteRenderer {
      * @param {string} tagName - Tag name to search for
      * @private
      */
-    static _searchByTag(tagName) {
+    _searchByTag(tagName) {
         const searchInput = this._elements.html.querySelector("input[name='search']");
         if (!searchInput) return;
 
@@ -749,10 +836,8 @@ export class PaletteRenderer {
         const newValue = currentValue ? `${currentValue} ${tagName}` : tagName;
 
         searchInput.value = newValue;
-        searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-
-        // Also trigger Foundry's search filter
-        searchInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+        const InputEvent = searchInput.ownerDocument.defaultView.Event;
+        searchInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
     }
 
     /**
@@ -760,19 +845,20 @@ export class PaletteRenderer {
      * @param {object} tag - The tag to delete
      * @private
      */
-    static async _handleDelete(tag) {
+    async _handleDelete(tag) {
         // IMPORTANT: Check notifications setting immediately to determine if we skip dialog
         const notificationsEnabled = TagManager.areNotificationsEnabled();
 
         // If notifications are disabled, delete immediately regardless of usage
         if (!notificationsEnabled) {
             await TagManager.deleteTag(tag.uuid);
-            this._renderTags();
             return;
         }
 
         const documents = TagAssignmentManager.getDocumentsWithTag(tag.uuid);
-        let content = `<p>${game.i18n.format("AUDIO_TAGGER.DeleteConfirmContent", { name: tag.name })}</p>`;
+        let content = `<p>${game.i18n.format("AUDIO_TAGGER.DeleteConfirmContent", {
+            name: foundry.utils.escapeHTML(tag.name)
+        })}</p>`;
 
         if (documents.length > 0) {
             // Count playlists and sounds separately for clarity
@@ -805,7 +891,6 @@ export class PaletteRenderer {
             if (TagManager.areNotificationsEnabled()) {
                 ui.notifications.info(game.i18n.localize("AUDIO_TAGGER.TagDeleted"));
             }
-            this._renderTags();
         }
     }
 }
